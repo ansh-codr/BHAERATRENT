@@ -3,6 +3,7 @@ import { doc, updateDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Booking, PaymentMethod, Transaction } from '../types';
 import { createTransaction, generateReferenceId } from '../services/transactions';
+import { createNotification } from '../services/notifications';
 
 export type PaymentStatusState = 'idle' | 'processing' | 'success' | 'failed';
 
@@ -69,7 +70,22 @@ export const usePaymentSimulator = () => {
             status: 'confirmed',
             paymentMethod: method,
             transactionId,
+             chatEnabled: true,
+             itemReceived: false,
             updatedAt: Timestamp.now(),
+          });
+
+          await createNotification({
+            userId: booking.providerId,
+            title: 'New booking confirmed',
+            body: `${booking.renterName || 'A renter'} paid for ${booking.itemTitle || 'your item'}.`,
+            type: 'booking',
+            metadata: {
+              bookingId: booking.id,
+              renterId: booking.renterId,
+              itemTitle: booking.itemTitle,
+              transactionId,
+            },
           });
 
           setStatus('success');

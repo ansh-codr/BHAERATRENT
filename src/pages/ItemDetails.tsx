@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, getDoc, addDoc, collection, Timestamp } from 'firebase/firestore';
+import { doc, getDoc, addDoc, collection, Timestamp, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/Button';
@@ -71,29 +71,53 @@ export const ItemDetails = () => {
       const days = differenceInDays(end, start) + 1;
       const totalPrice = days * item.price;
 
+      if (days <= 0) {
+        toast.error('End date must be after start date');
+        return;
+      }
+
+      const existingSnapshot = await getDocs(
+        query(
+          collection(db, 'bookings'),
+          where('itemId', '==', item.id),
+          where('renterId', '==', currentUser.uid)
+        )
+      );
+
+      const hasActiveBooking = existingSnapshot.docs.some((docSnapshot) => {
+        const data = docSnapshot.data();
+        const existingEnd = data.endDate?.toDate() || new Date();
+        const status = data.status;
+        const blockedStatuses = ['pending', 'confirmed', 'active'];
+        return blockedStatuses.includes(status) && existingEnd >= new Date();
+      });
+
+      if (hasActiveBooking) {
+        toast.error('You already have an upcoming booking for this item. Please wait until it ends.');
+        return;
+      }
+
       const bookingData = {
         itemId: item.id,
         renterId: currentUser.uid,
         providerId: item.providerId,
+        renterName: currentUser.displayName || currentUser.email,
+        renterEmail: currentUser.email,
+        providerName: item.providerName,
+        itemTitle: item.title,
         startDate: Timestamp.fromDate(start),
         endDate: Timestamp.fromDate(end),
         totalPrice,
-        status: 'confirmed',
+        status: 'pending',
+        paymentStatus: 'pending',
+        chatEnabled: false,
+        itemReceived: false,
         createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
       };
 
       await addDoc(collection(db, 'bookings'), bookingData);
-
-      const transactionData = {
-        bookingId: 'temp',
-        amount: totalPrice,
-        status: 'completed',
-        createdAt: Timestamp.now(),
-      };
-
-      await addDoc(collection(db, 'transactions'), transactionData);
-
-      toast.success('Booking successful!');
+      toast.success('Booking created! Complete payment from your dashboard to confirm.');
       navigate('/renter');
     } catch (error) {
       console.error('Error creating booking:', error);

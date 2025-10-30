@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Card } from '../components/ui/Card';
@@ -11,7 +11,10 @@ import { format } from 'date-fns';
 import PaymentModal from '../components/payments/PaymentModal';
 import TransactionDetailsModal from '../components/payments/TransactionDetailsModal';
 import { listenToTransactionsByRenter } from '../services/transactions';
+import { createNotification } from '../services/notifications';
 import { Button } from '../components/ui/Button';
+import BookingChatDrawer from '../components/chat/BookingChatDrawer';
+import toast from 'react-hot-toast';
 
 export const RenterDashboard = () => {
   const { currentUser } = useAuth();
@@ -22,6 +25,8 @@ export const RenterDashboard = () => {
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [transactionModalOpen, setTransactionModalOpen] = useState(false);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatBooking, setChatBooking] = useState<Booking | null>(null);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -40,6 +45,8 @@ export const RenterDashboard = () => {
         paymentStatus: doc.data().paymentStatus || 'pending',
         paymentMethod: doc.data().paymentMethod,
         transactionId: doc.data().transactionId,
+        chatEnabled: Boolean(doc.data().chatEnabled),
+        itemReceived: Boolean(doc.data().itemReceived),
       } as Booking));
 
       setBookings(fetchedBookings);
@@ -103,6 +110,40 @@ export const RenterDashboard = () => {
   const openTransactionModal = (transaction: Transaction) => {
     setSelectedTransaction(transaction);
     setTransactionModalOpen(true);
+  };
+
+  const openChat = (booking: Booking) => {
+    if (!currentUser) {
+      toast.error('Please log in to chat.');
+      return;
+    }
+    setChatBooking(booking);
+    setChatOpen(true);
+  };
+
+  const handleConfirmReceived = async (booking: Booking) => {
+    if (!currentUser) return;
+    try {
+      await updateDoc(doc(db, 'bookings', booking.id), {
+        status: 'active',
+        itemReceived: true,
+        updatedAt: Timestamp.now(),
+      });
+      await createNotification({
+        userId: booking.providerId,
+        title: 'Item handed over',
+        body: `${booking.renterName || 'Your renter'} confirmed they received ${booking.itemTitle || 'the item'}.`,
+        type: 'booking',
+        metadata: {
+          bookingId: booking.id,
+          renterId: booking.renterId,
+        },
+      });
+      toast.success('Great! Enjoy your rental.');
+    } catch (error) {
+      console.error('Failed to confirm receipt:', error);
+      toast.error('Could not update booking. Please retry.');
+    }
   };
 
   return (
@@ -243,6 +284,11 @@ export const RenterDashboard = () => {
                           Pay Now
                         </Button>
                       ) : null}
+                        {booking.paymentStatus === 'success' && booking.chatEnabled ? (
+                          <Button size="sm" variant="ghost" onClick={() => openChat(booking)}>
+                            Open Chat
+                          </Button>
+                        ) : null}
                       {booking.transactionId ? (
                         <Button
                           size="sm"
@@ -272,6 +318,11 @@ export const RenterDashboard = () => {
                           }}
                         >
                           View Transaction
+                        </Button>
+                      ) : null}
+                      {booking.paymentStatus === 'success' && !booking.itemReceived ? (
+                        <Button size="sm" variant="secondary" onClick={() => handleConfirmReceived(booking)}>
+                          Confirm Item Received
                         </Button>
                       ) : null}
                     </div>
@@ -305,6 +356,17 @@ export const RenterDashboard = () => {
           setTransactionModalOpen(false);
           setSelectedTransaction(null);
         }}
+      />
+
+      <BookingChatDrawer
+        isOpen={chatOpen}
+        booking={chatBooking}
+        onClose={() => {
+          setChatOpen(false);
+          setChatBooking(null);
+        }}
+        currentUserId={currentUser?.uid || ''}
+        counterpartName={chatBooking?.providerName}
       />
     </div>
   );

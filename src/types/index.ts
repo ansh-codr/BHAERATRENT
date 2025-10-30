@@ -47,6 +47,8 @@ export interface Booking {
   paymentStatus?: 'pending' | 'success' | 'failed';
   paymentMethod?: PaymentMethod;
   transactionId?: string;
+  chatEnabled?: boolean;
+  itemReceived?: boolean;
   createdAt: Date;
 }
 
@@ -66,3 +68,26 @@ export interface Transaction {
 }
 
 export type PaymentMethod = 'card' | 'upi' | 'wallet';
+
+export interface Message {
+  id: string;
+  bookingId: string;
+  senderId: string;
+  receiverId: string;
+  content: string;
+  createdAt: Date;
+  read?: boolean;
+}
+
+export type NotificationType = 'booking' | 'chat' | 'system';
+
+export interface Notification {
+  id: string;
+  userId: string;
+  title: string;
+  body: string;
+  type: NotificationType;
+  read: boolean;
+  createdAt: Date;
+  metadata?: Record<string, unknown>;
+}
