@@ -70,6 +70,7 @@ export const RenterDashboard = () => {
             lastMessageAt: toDate(data.lastMessageAt),
             lastMessagePreview: data.lastMessagePreview,
             lastMessageSenderId: data.lastMessageSenderId,
+            lastMessageAtMs: typeof data.lastMessageAtMs === 'number' ? data.lastMessageAtMs : undefined,
           };
 
           return normalized as Booking;

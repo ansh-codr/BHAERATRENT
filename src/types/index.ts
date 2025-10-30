@@ -58,6 +58,7 @@ export interface Booking {
   lastMessagePreview?: string;
   lastMessageAt?: Date;
   lastMessageSenderId?: string;
+  lastMessageAtMs?: number;
   createdAt: Date;
 }
 
@@ -86,6 +87,7 @@ export interface Message {
   content: string;
   createdAt: Date;
   read?: boolean;
+  createdAtMs?: number;
 }
 
 export type NotificationType = 'booking' | 'chat' | 'system';

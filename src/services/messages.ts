@@ -2,7 +2,6 @@ import {
   addDoc,
   collection,
   onSnapshot,
-  orderBy,
   query,
   serverTimestamp,
   where,
@@ -27,18 +26,32 @@ const mapMessage = (snapshot: QueryDocumentSnapshot<DocumentData>): Message => {
     receiverId: data.receiverId,
     content: data.content,
     read: Boolean(data.read),
-    createdAt: (data.createdAt instanceof Timestamp ? data.createdAt.toDate() : data.createdAt) || new Date(),
+    createdAt:
+      (data.createdAt instanceof Timestamp ? data.createdAt.toDate() : data.createdAt) ||
+      (typeof data.createdAtMs === 'number' ? new Date(data.createdAtMs) : new Date()),
+    createdAtMs: typeof data.createdAtMs === 'number' ? data.createdAtMs : undefined,
   };
 };
 
 export const listenToMessages = (bookingId: string, callback: (messages: Message[]) => void) => {
   const messagesRef = collection(db, COLLECTION);
-  const q = query(messagesRef, where('bookingId', '==', bookingId), orderBy('createdAt', 'asc'));
+  const q = query(messagesRef, where('bookingId', '==', bookingId));
 
-  return onSnapshot(q, (snapshot) => {
-    const messages = snapshot.docs.map((docSnapshot) => mapMessage(docSnapshot));
-    callback(messages);
-  });
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const messages = snapshot.docs.map((docSnapshot) => mapMessage(docSnapshot));
+      messages.sort((a, b) => {
+        const aTime = (a.createdAt ? a.createdAt.getTime() : undefined) ?? a.createdAtMs ?? 0;
+        const bTime = (b.createdAt ? b.createdAt.getTime() : undefined) ?? b.createdAtMs ?? 0;
+        return aTime - bTime;
+      });
+      callback(messages);
+    },
+    (error) => {
+      console.error('Realtime messages error:', error);
+    }
+  );
 };
 
 export interface SendMessagePayload {
@@ -51,6 +64,7 @@ export interface SendMessagePayload {
 }
 
 export const sendMessage = async (payload: SendMessagePayload) => {
+  const now = Date.now();
   const docRef = await addDoc(collection(db, COLLECTION), {
     bookingId: payload.bookingId,
     senderId: payload.senderId,
@@ -58,6 +72,7 @@ export const sendMessage = async (payload: SendMessagePayload) => {
     content: payload.content,
     read: false,
     createdAt: serverTimestamp(),
+    createdAtMs: now,
   });
 
   try {
@@ -65,6 +80,7 @@ export const sendMessage = async (payload: SendMessagePayload) => {
       lastMessagePreview: payload.content.slice(0, 160),
       lastMessageAt: serverTimestamp(),
       lastMessageSenderId: payload.senderId,
+      lastMessageAtMs: now,
     });
   } catch (error) {
     console.error('Failed to update booking with last message metadata:', error);
