@@ -1,60 +1,123 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { collection, query, where, onSnapshot, addDoc, updateDoc, doc, Timestamp } from 'firebase/firestore';
-import uploadImage, { validateImageFile } from '../lib/imageUploader';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  collection,
+  query,
+  where,
+  onSnapshot,
+  addDoc,
+  updateDoc,
+  doc,
+  Timestamp,
+} from 'firebase/firestore';
+import { AnimatePresence, motion } from 'framer-motion';
+import {
+  Package,
+  BadgeCheck,
+  Coins,
+  BarChart3,
+  Plus,
+  Images,
+  Trash2,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  CalendarDays,
+} from 'lucide-react';
 import toast from 'react-hot-toast';
+import { format } from 'date-fns';
+import { useLocation, useNavigate } from 'react-router-dom';
+
+import uploadImage, { validateImageFile } from '../lib/imageUploader';
 import { db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Card } from '../components/ui/Card';
-import { Package, Plus, DollarSign, Calendar, X } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { Item, Booking } from '../types';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { format } from 'date-fns';
-
 import { TutorialCards } from '../components/TutorialCards';
+
+const formSteps = [
+  {
+    title: 'Item details',
+    description: 'Give your listing a strong title and description so renters know exactly what they receive.',
+  },
+  {
+    title: 'Upload images',
+    description: 'Show the item from different angles. High-quality photos build trust.',
+  },
+  {
+    title: 'Category & pricing',
+    description: 'Categorise the item and set a fair daily renting price in rupees.',
+  },
+  {
+    title: 'Availability',
+    description: 'Optionally set a date window when the item can be rented out.',
+  },
+];
+
+const initialFormState = {
+  title: '',
+  description: '',
+  price: '',
+  category: 'gadgets' as Item['category'],
+  availableFrom: '',
+  availableTo: '',
+};
+
+const statusBadges: Record<Booking['status'], string> = {
+  pending: 'bg-amber-400/15 border-amber-400 text-amber-200',
+  confirmed: 'bg-emerald-400/15 border-emerald-400 text-emerald-200',
+  active: 'bg-cyan-400/15 border-cyan-400 text-cyan-200',
+  completed: 'bg-purple-400/15 border-purple-400 text-purple-200',
+  cancelled: 'bg-rose-400/15 border-rose-400 text-rose-200',
+};
+
 export const ProviderDashboard = () => {
   const { currentUser } = useAuth();
-  const location = useLocation();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const [activeTab, setActiveTab] = useState<'listings' | 'bookings' | 'analytics'>('listings');
   const [items, setItems] = useState<Item[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [loadingItems, setLoadingItems] = useState(true);
+  const [loadingBookings, setLoadingBookings] = useState(true);
+
   const [showAddModal, setShowAddModal] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [bookingsLoading, setBookingsLoading] = useState(true);
-  const [formData, setFormData] = useState({
-    title: '',
-    description: '',
-    category: 'gadgets' as Item['category'],
-    price: '',
-  });
+  const [currentStep, setCurrentStep] = useState(0);
+  const [formData, setFormData] = useState(initialFormState);
   const [imageFiles, setImageFiles] = useState<File[]>([]);
+  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+
   const bookingsSectionRef = useRef<HTMLDivElement | null>(null);
   const [highlightBookings, setHighlightBookings] = useState(false);
 
   useEffect(() => {
     if (!currentUser) return;
 
-    setLoading(true);
     const itemsRef = collection(db, 'items');
-    const q = query(itemsRef, where('providerId', '==', currentUser.uid));
+    const itemsQuery = query(itemsRef, where('providerId', '==', currentUser.uid));
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const fetchedItems: Item[] = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: doc.data().createdAt?.toDate() || new Date(),
-        updatedAt: doc.data().updatedAt?.toDate() || new Date(),
-      } as Item));
-
-      setItems(fetchedItems);
-      setLoading(false);
-    }, (err) => {
-      console.error('Realtime items error:', err);
-      setLoading(false);
-    });
+    const unsubscribe = onSnapshot(
+      itemsQuery,
+      (snapshot) => {
+        const fetchedItems: Item[] = snapshot.docs.map((itemDoc) => ({
+          id: itemDoc.id,
+          ...itemDoc.data(),
+          createdAt: itemDoc.data().createdAt?.toDate() || new Date(),
+          updatedAt: itemDoc.data().updatedAt?.toDate() || new Date(),
+        })) as Item[];
+        setItems(fetchedItems);
+        setLoadingItems(false);
+      },
+      (error) => {
+        console.error('Realtime items error:', error);
+        setLoadingItems(false);
+        toast.error('Unable to fetch listings in real time.');
+      }
+    );
 
     return () => unsubscribe();
   }, [currentUser]);
@@ -62,55 +125,109 @@ export const ProviderDashboard = () => {
   useEffect(() => {
     if (!currentUser) return;
 
-    setBookingsLoading(true);
     const bookingsRef = collection(db, 'bookings');
     const bookingsQuery = query(bookingsRef, where('providerId', '==', currentUser.uid));
 
-    const unsubscribe = onSnapshot(bookingsQuery, (snapshot) => {
-      const fetchedBookings: Booking[] = snapshot.docs.map(docItem => ({
-        id: docItem.id,
-        ...docItem.data(),
-        startDate: docItem.data().startDate?.toDate() || new Date(),
-        endDate: docItem.data().endDate?.toDate() || new Date(),
-        createdAt: docItem.data().createdAt?.toDate() || new Date(),
-      } as Booking));
-
-      setBookings(fetchedBookings);
-      setBookingsLoading(false);
-    }, (err) => {
-      console.error('Realtime bookings error:', err);
-      setBookingsLoading(false);
-    });
+    const unsubscribe = onSnapshot(
+      bookingsQuery,
+      (snapshot) => {
+        const fetchedBookings: Booking[] = snapshot.docs.map((bookingDoc) => ({
+          id: bookingDoc.id,
+          ...bookingDoc.data(),
+          startDate: bookingDoc.data().startDate?.toDate() || new Date(),
+          endDate: bookingDoc.data().endDate?.toDate() || new Date(),
+          createdAt: bookingDoc.data().createdAt?.toDate() || new Date(),
+        })) as Booking[];
+        setBookings(fetchedBookings);
+        setLoadingBookings(false);
+      },
+      (error) => {
+        console.error('Realtime bookings error:', error);
+        setLoadingBookings(false);
+      }
+    );
 
     return () => unsubscribe();
   }, [currentUser]);
 
-  const itemLookup = useMemo(() => {
-    return items.reduce((acc, item) => {
-      acc[item.id] = item;
-      return acc;
-    }, {} as Record<string, Item>);
-  }, [items]);
+  const itemLookup = useMemo(
+    () =>
+      items.reduce<Record<string, Item>>((acc, item) => {
+        acc[item.id] = item;
+        return acc;
+      }, {}),
+    [items]
+  );
+
+  const totalEarnings = useMemo(
+    () =>
+      bookings
+        .filter((booking) => booking.status === 'confirmed' || booking.status === 'completed')
+        .reduce((sum, booking) => sum + (booking.totalPrice || 0), 0),
+    [bookings]
+  );
+
+  const mostRentedItem = useMemo(() => {
+    if (bookings.length === 0) return null;
+    const map = new Map<string, number>();
+    bookings.forEach((booking) => {
+      map.set(booking.itemId, (map.get(booking.itemId) || 0) + 1);
+    });
+    let topItemId: string | null = null;
+    let topCount = 0;
+    map.forEach((count, id) => {
+      if (count > topCount) {
+        topCount = count;
+        topItemId = id;
+      }
+    });
+    if (!topItemId) return null;
+    const item = itemLookup[topItemId];
+    if (!item) return null;
+    return {
+      ...item,
+      rentals: topCount,
+    };
+  }, [bookings, itemLookup]);
+
+  const resetForm = () => {
+    setFormData(initialFormState);
+    setImageFiles([]);
+    imagePreviews.forEach((url) => URL.revokeObjectURL(url));
+    setImagePreviews([]);
+    setCurrentStep(0);
+    setUploadProgress(0);
+  };
+
+  const closeModal = () => {
+    setShowAddModal(false);
+    resetForm();
+  };
+
+  const handleOpenModal = useCallback(() => {
+    setShowAddModal(true);
+    setCurrentStep(0);
+    setActiveTab('listings');
+  }, []);
 
   useEffect(() => {
-    const handleOpenModal = () => setShowAddModal(true);
     window.addEventListener('provider:add-item', handleOpenModal);
     return () => window.removeEventListener('provider:add-item', handleOpenModal);
-  }, []);
+  }, [handleOpenModal]);
 
   useEffect(() => {
     let timer: number | undefined;
     const handleShowBookings = () => {
+      setActiveTab('bookings');
       if (bookingsSectionRef.current) {
         bookingsSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
         setHighlightBookings(true);
         if (timer) window.clearTimeout(timer);
-        timer = window.setTimeout(() => setHighlightBookings(false), 2000);
+        timer = window.setTimeout(() => setHighlightBookings(false), 2200);
       }
     };
 
     window.addEventListener('provider:show-bookings', handleShowBookings);
-
     return () => {
       window.removeEventListener('provider:show-bookings', handleShowBookings);
       if (timer) window.clearTimeout(timer);
@@ -125,71 +242,122 @@ export const ProviderDashboard = () => {
     }
   }, [location.search, navigate]);
 
-  const getStatusColor = (status: Booking['status']) => {
-    switch (status) {
-      case 'confirmed':
-        return 'bg-lime-400/20 border-lime-400 text-lime-400';
-      case 'active':
-        return 'bg-cyan-400/20 border-cyan-400 text-cyan-400';
-      case 'completed':
-        return 'bg-purple-400/20 border-purple-400 text-purple-400';
-      case 'cancelled':
-        return 'bg-red-400/20 border-red-400 text-red-400';
+  const canProceedStep = useMemo(() => {
+    switch (currentStep) {
+      case 0:
+        return Boolean(formData.title.trim()) && Boolean(formData.description.trim());
+      case 1:
+        return imageFiles.length > 0;
+      case 2:
+        return Boolean(formData.price) && Number(formData.price) > 0;
       default:
-        return 'bg-gray-400/20 border-gray-400 text-gray-400';
+        return true;
     }
+  }, [currentStep, formData.description, formData.price, formData.title, imageFiles.length]);
+
+  const handleImageSelection = (files: FileList | null) => {
+    if (!files) return;
+    const selected = Array.from(files);
+
+    const validFiles: File[] = [];
+    selected.forEach((file) => {
+      try {
+        validateImageFile(file);
+        validFiles.push(file);
+      } catch (error) {
+        toast.error((error as Error).message);
+      }
+    });
+
+    if (validFiles.length === 0) {
+      return;
+    }
+
+    const mergedFiles = [...imageFiles, ...validFiles].slice(0, 6);
+    setImageFiles(mergedFiles);
+
+    imagePreviews.forEach((url) => URL.revokeObjectURL(url));
+    const previews = mergedFiles.map((file) => URL.createObjectURL(file));
+    setImagePreviews(previews);
   };
 
-  const handleAddItem = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const removeImage = (index: number) => {
+    setImageFiles((prev) => prev.filter((_, idx) => idx !== index));
+    setImagePreviews((prev) => {
+      const next = [...prev];
+      const [removed] = next.splice(index, 1);
+      if (removed) URL.revokeObjectURL(removed);
+      return next;
+    });
+  };
+
+  const goNext = () => {
+    if (!canProceedStep) {
+      toast.error('Please complete this step before continuing.');
+      return;
+    }
+    setCurrentStep((step) => Math.min(step + 1, formSteps.length - 1));
+  };
+
+  const goPrevious = () => {
+    setCurrentStep((step) => Math.max(step - 1, 0));
+  };
+
+  const handleSubmit = async () => {
     if (!currentUser) return;
+    if (!canProceedStep) {
+      toast.error('Please finish the required fields.');
+      return;
+    }
+
+    if (imageFiles.length === 0) {
+      setCurrentStep(1);
+      toast.error('Add at least one image for the listing.');
+      return;
+    }
 
     setSubmitting(true);
+    setUploadProgress(0);
 
     try {
-      let imageObjs: { url: string; thumb?: string }[] = [];
+      const uploaded: { url: string; thumb?: string }[] = [];
 
-      if (imageFiles && imageFiles.length > 0) {
-        for (const f of imageFiles) {
-          try {
-            validateImageFile(f);
-          } catch (err) {
-            throw err;
-          }
-        }
-
-        const uploaded: { url: string; thumb?: string }[] = [];
-        for (const f of imageFiles) {
-          const res = await uploadImage(f, `items`);
-          uploaded.push(res);
-        }
-        imageObjs = uploaded.map(u => ({ url: u.url, thumb: u.thumb }));
+      for (let i = 0; i < imageFiles.length; i += 1) {
+        const file = imageFiles[i];
+        const result = await uploadImage(file, {
+          pathPrefix: `items/${currentUser.uid}`,
+          onProgress: (progress) => {
+            const completed = (i + progress / 100) / imageFiles.length;
+            setUploadProgress(Math.round(completed * 100));
+          },
+        });
+        uploaded.push({ url: result.url, thumb: result.thumb });
       }
 
-      const newItem = {
+      const payload = {
         providerId: currentUser.uid,
-        providerName: currentUser.displayName,
-        title: formData.title,
-        description: formData.description,
+        providerName: currentUser.displayName || currentUser.email,
+        title: formData.title.trim(),
+        description: formData.description.trim(),
         category: formData.category,
-        price: parseFloat(formData.price),
-        images: imageObjs.length > 0 ? imageObjs : [],
+        price: Number(formData.price),
+        images: uploaded,
         available: true,
+        availableFrom: formData.availableFrom ? Timestamp.fromDate(new Date(formData.availableFrom)) : null,
+        availableTo: formData.availableTo ? Timestamp.fromDate(new Date(formData.availableTo)) : null,
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now(),
       };
 
-      await addDoc(collection(db, 'items'), newItem);
-
-      setFormData({ title: '', description: '', category: 'gadgets', price: '' });
-      setImageFiles([]);
-      setShowAddModal(false);
-      toast.success('Item added');
+      await addDoc(collection(db, 'items'), payload);
+      toast.success('Item added successfully!');
+      closeModal();
     } catch (error) {
-      console.error('Error adding item:', error);
-      toast.error((error as Error).message || 'Failed to add item. Please try again.');
+      console.error('Failed to add item:', error);
+      toast.error('Could not add item. Please try again.');
     } finally {
       setSubmitting(false);
+      setUploadProgress(0);
     }
   };
 
@@ -199,341 +367,570 @@ export const ProviderDashboard = () => {
         available: !currentStatus,
         updatedAt: Timestamp.now(),
       });
-      // realtime listener will update items automatically
+      toast.success(`Listing marked as ${!currentStatus ? 'available' : 'unavailable'}.`);
     } catch (error) {
       console.error('Error updating availability:', error);
+      toast.error('Failed to update availability.');
     }
   };
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900/20 to-gray-900">
-      <div className="container mx-auto px-4 py-8">
-        <TutorialCards />
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-8"
-        >
-          <h1 className="text-4xl font-black text-white mb-2">Provider Dashboard</h1>
-          <p className="text-gray-400">Manage your items and earnings</p>
-        </motion.div>
+  const handleBookingStatus = async (bookingId: string, status: Booking['status']) => {
+    try {
+      await updateDoc(doc(db, 'bookings', bookingId), {
+        status,
+        updatedAt: Timestamp.now(),
+      });
+      toast.success(`Booking ${status === 'confirmed' ? 'approved' : 'rejected'}.`);
+    } catch (error) {
+      console.error('Failed to update booking status:', error);
+      toast.error('Unable to update booking status.');
+    }
+  };
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <Card className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-400 text-sm mb-1">Total Items</p>
-                <p className="text-3xl font-black text-white">{items.length}</p>
-              </div>
-              <Package className="w-12 h-12 text-cyan-400" />
+  const renderStepContent = () => {
+    switch (currentStep) {
+      case 0:
+        return (
+          <div className="space-y-4">
+            <Input
+              label="Listing title"
+              placeholder="Eg. DJI Osmo Action Camera"
+              value={formData.title}
+              onChange={(event) => setFormData((prev) => ({ ...prev, title: event.target.value }))}
+              required
+            />
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-200">Description</label>
+              <textarea
+                className="w-full rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/30"
+                rows={4}
+                placeholder="Describe the condition, what's included, and any usage guidelines."
+                value={formData.description}
+                onChange={(event) => setFormData((prev) => ({ ...prev, description: event.target.value }))}
+              />
             </div>
-          </Card>
+          </div>
+        );
+      case 1:
+        return (
+          <div className="space-y-4">
+            <label className="block text-sm font-medium text-gray-200">Upload photos</label>
+            <div className="flex min-h-[180px] flex-col items-center justify-center rounded-3xl border border-dashed border-white/20 bg-black/40 p-6 text-center">
+              <Images className="mb-3 h-10 w-10 text-cyan-300" />
+              <p className="text-sm text-gray-300">
+                Drag & drop or
+                <button
+                  type="button"
+                  className="ml-1 text-cyan-300 underline"
+                  onClick={() => document.getElementById('provider-image-input')?.click()}
+                >
+                  browse files
+                </button>
+              </p>
+              <p className="text-xs text-gray-500">PNG or JPG up to 5MB each. Maximum 6 photos.</p>
+              <input
+                id="provider-image-input"
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={(event) => handleImageSelection(event.target.files)}
+                className="hidden"
+              />
+            </div>
+            {imagePreviews.length > 0 && (
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                {imagePreviews.map((preview, index) => (
+                  <div key={preview} className="group relative overflow-hidden rounded-2xl border border-white/10">
+                    <img src={preview} alt="Preview" className="h-32 w-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => removeImage(index)}
+                      className="absolute right-2 top-2 hidden rounded-full bg-black/70 p-1 text-xs text-white transition group-hover:flex"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      case 2:
+        return (
+          <div className="space-y-4">
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-200">Category</label>
+              <select
+                className="w-full rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-white focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/30"
+                value={formData.category}
+                onChange={(event) =>
+                  setFormData((prev) => ({ ...prev, category: event.target.value as Item['category'] }))
+                }
+              >
+                <option value="gadgets">Gadgets</option>
+                <option value="books">Books</option>
+                <option value="clothes">Clothes</option>
+                <option value="accessories">Accessories</option>
+              </select>
+            </div>
+            <Input
+              label="Price per day (₹)"
+              type="number"
+              min="1"
+              step="1"
+              placeholder="Enter price"
+              value={formData.price}
+              onChange={(event) => setFormData((prev) => ({ ...prev, price: event.target.value }))}
+              required
+            />
+          </div>
+        );
+      case 3:
+        return (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Input
+                label="Available from"
+                type="date"
+                value={formData.availableFrom}
+                onChange={(event) => setFormData((prev) => ({ ...prev, availableFrom: event.target.value }))}
+              />
+              <Input
+                label="Available until"
+                type="date"
+                min={formData.availableFrom || undefined}
+                value={formData.availableTo}
+                onChange={(event) => setFormData((prev) => ({ ...prev, availableTo: event.target.value }))}
+              />
+            </div>
+            <p className="text-xs text-gray-400">
+              Leave dates empty if the item is available on demand. You can always update availability later.
+            </p>
+          </div>
+        );
+      default:
+        return null;
+    }
+  };
 
-          <Card className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-400 text-sm mb-1">Active Listings</p>
-                <p className="text-3xl font-black text-white">
-                  {items.filter(item => item.available).length}
-                </p>
-              </div>
-              <Calendar className="w-12 h-12 text-lime-400" />
-            </div>
-          </Card>
-
-          <Card className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-400 text-sm mb-1">Total Earnings</p>
-                <p className="text-3xl font-black text-white">₹0</p>
-              </div>
-              <DollarSign className="w-12 h-12 text-purple-400" />
-            </div>
-          </Card>
+  const renderListings = () => {
+    if (loadingItems) {
+      return (
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+          {[...Array(3)].map((_, index) => (
+            <Card key={index} className="h-64 animate-pulse bg-white/10">
+              <div className="h-full w-full rounded-2xl bg-white/5" />
+            </Card>
+          ))}
         </div>
+      );
+    }
 
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold text-white">My Items</h2>
-          <Button onClick={() => setShowAddModal(true)}>
-            <Plus className="w-5 h-5 mr-2" />
+    if (items.length === 0) {
+      return (
+        <Card className="flex flex-col items-center justify-center gap-4 p-12 text-center text-gray-400">
+          <Package className="h-12 w-12 text-gray-500" />
+          <p className="text-lg font-semibold">No listings yet</p>
+          <p className="text-sm text-gray-500">Create your first listing to start earning on campus.</p>
+          <Button onClick={handleOpenModal}>
+            <Plus className="mr-2 h-4 w-4" />
+            Add New Item
+          </Button>
+        </Card>
+      );
+    }
+
+    return (
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+        {items.map((item, index) => (
+          <motion.div
+            key={item.id}
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: index * 0.05 }}
+          >
+            <Card className="overflow-hidden border-white/10 bg-black/40">
+              <div className="relative flex h-48 items-center justify-center bg-gradient-to-br from-slate-950 to-slate-900">
+                {(() => {
+                  const firstImage = item.images?.[0];
+                  const src = firstImage
+                    ? typeof firstImage === 'string'
+                      ? firstImage
+                      : firstImage.thumb || firstImage.url
+                    : null;
+                  if (!src) {
+                    return <Package className="h-12 w-12 text-gray-600" />;
+                  }
+                  return <img src={src} alt={item.title} className="h-full w-full object-cover" />;
+                })()}
+              </div>
+              <div className="space-y-4 p-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="truncate text-lg font-bold text-white">{item.title}</h3>
+                  <span
+                    className={`rounded-lg border px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${
+                      item.available
+                        ? 'border-emerald-400/60 bg-emerald-400/10 text-emerald-200'
+                        : 'border-rose-400/60 bg-rose-400/10 text-rose-200'
+                    }`}
+                  >
+                    {item.available ? 'Available' : 'Unavailable'}
+                  </span>
+                </div>
+                <p className="line-clamp-2 text-sm text-gray-400">{item.description}</p>
+                <div className="flex items-center justify-between">
+                  <span className="text-xl font-bold text-cyan-300">₹{item.price}/day</span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="border-white/15"
+                    onClick={() => toggleAvailability(item.id, item.available)}
+                  >
+                    {item.available ? 'Mark unavailable' : 'Mark available'}
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          </motion.div>
+        ))}
+      </div>
+    );
+  };
+
+  const renderBookings = () => {
+    if (loadingBookings) {
+      return (
+        <div className="spacey-4 space-y-4">
+          {[...Array(3)].map((_, index) => (
+            <Card key={index} className="h-32 animate-pulse bg-white/10">
+              <div className="h-full w-full rounded-2xl bg-white/5" />
+            </Card>
+          ))}
+        </div>
+      );
+    }
+
+    if (bookings.length === 0) {
+      return (
+        <Card className="flex flex-col items-center justify-center gap-4 p-12 text-center text-gray-400">
+          <Clock className="h-12 w-12 text-gray-500" />
+          <p className="text-lg font-semibold">No booking requests yet</p>
+          <p className="text-sm text-gray-500">Share your listings link to get your first renter.</p>
+        </Card>
+      );
+    }
+
+    return (
+      <div className="space-y-4" ref={bookingsSectionRef}>
+        {bookings.map((booking, index) => {
+          const item = itemLookup[booking.itemId];
+          return (
+            <motion.div
+              key={booking.id}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.05 }}
+            >
+              <Card
+                className={`p-6 transition-shadow ${
+                  highlightBookings ? 'shadow-[0_0_0_3px_rgba(250,204,21,0.35)]' : ''
+                }`}
+              >
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <h3 className="text-lg font-bold text-white">
+                        {item?.title || booking.itemTitle || 'Listing removed'}
+                      </h3>
+                      <span
+                        className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${
+                          statusBadges[booking.status]
+                        }`}
+                      >
+                        {booking.status}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-400">
+                      Renter: {booking.renterName || booking.renterEmail || booking.renterId}
+                    </p>
+                    <div className="flex flex-wrap gap-6 text-sm text-gray-300">
+                      <div>
+                        <span className="block text-xs uppercase tracking-wide text-gray-500">Start</span>
+                        <span className="font-semibold text-white">
+                          {format(booking.startDate, 'MMM dd, yyyy')}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="block text-xs uppercase tracking-wide text-gray-500">End</span>
+                        <span className="font-semibold text-white">
+                          {format(booking.endDate, 'MMM dd, yyyy')}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="block text-xs uppercase tracking-wide text-gray-500">Total</span>
+                        <span className="font-semibold text-cyan-300">₹{booking.totalPrice}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-2 lg:items-end">
+                    {booking.status === 'pending' ? (
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => handleBookingStatus(booking.id, 'confirmed')}
+                        >
+                          <CheckCircle2 className="mr-2 h-4 w-4" /> Approve
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleBookingStatus(booking.id, 'cancelled')}
+                        >
+                          <XCircle className="mr-2 h-4 w-4" /> Reject
+                        </Button>
+                      </div>
+                    ) : (
+                      <p className="text-xs uppercase tracking-wide text-gray-500">
+                        Last updated {format(booking.createdAt, 'MMM dd, yyyy')}
+                      </p>
+                    )}
+                    {item ? (
+                      <Button size="sm" variant="ghost" onClick={() => navigate(`/item/${item.id}`)}>
+                        View listing
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              </Card>
+            </motion.div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const renderAnalytics = () => (
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+      <Card className="p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm text-gray-400">Total earnings</p>
+            <p className="mt-2 text-3xl font-black text-white">₹{totalEarnings}</p>
+          </div>
+          <Coins className="h-10 w-10 text-emerald-300" />
+        </div>
+      </Card>
+      <Card className="p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm text-gray-400">Completed rentals</p>
+            <p className="mt-2 text-3xl font-black text-white">
+              {bookings.filter((booking) => booking.status === 'completed').length}
+            </p>
+          </div>
+          <BadgeCheck className="h-10 w-10 text-cyan-300" />
+        </div>
+      </Card>
+      <Card className="p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm text-gray-400">Most rented item</p>
+            <p className="mt-2 text-lg font-semibold text-white">
+              {mostRentedItem ? mostRentedItem.title : 'Not enough data yet'}
+            </p>
+            {mostRentedItem ? (
+              <p className="text-xs text-gray-500">{mostRentedItem.rentals} total rentals</p>
+            ) : null}
+          </div>
+          <BarChart3 className="h-10 w-10 text-purple-300" />
+        </div>
+      </Card>
+    </div>
+  );
+
+  return (
+    <div className="space-y-10">
+      <TutorialCards />
+
+      <motion.section
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="rounded-3xl border border-white/10 bg-white/5 p-8 backdrop-blur-2xl shadow-[0_15px_80px_rgba(15,23,42,0.55)]"
+      >
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-[0.35em] text-gray-500">Provider hub</p>
+            <h1 className="mt-2 text-3xl font-black text-white">Manage your BharatRent listings</h1>
+            <p className="mt-2 text-sm text-gray-400">
+              Track bookings, earnings, and keep your inventory fresh for students on campus.
+            </p>
+          </div>
+          <Button onClick={handleOpenModal} className="self-start">
+            <Plus className="mr-2 h-4 w-4" />
             Add New Item
           </Button>
         </div>
 
-        {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[...Array(3)].map((_, i) => (
-              <Card key={i} className="h-64 animate-pulse"><div className="h-full" /></Card>
-            ))}
-          </div>
-        ) : items.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {items.map((item, index) => (
-              <motion.div
-                key={item.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.1 }}
-              >
-                <Card className="overflow-hidden">
-                  <div className="h-48 bg-gradient-to-br from-gray-800 to-gray-700 flex items-center justify-center">
-                    {(() => {
-                      const first = item.images?.[0];
-                      const src = first
-                        ? (typeof first === 'string' ? first : (first as any).thumb || (first as any).url)
-                        : null;
-
-                      return src ? (
-                        <img src={src} alt={item.title} className="w-full h-full object-cover" />
-                      ) : (
-                      <Package className="w-16 h-16 text-gray-600" />
-                      );
-                    })()}
-                  </div>
-                  <div className="p-4">
-                    <h4 className="font-bold text-white mb-1">{item.title}</h4>
-                    <p className="text-gray-400 text-sm mb-3 line-clamp-2">{item.description}</p>
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-cyan-400 font-bold text-lg">₹{item.price}/day</span>
-                      <span className={`px-2 py-1 border rounded-lg text-xs font-semibold ${
-                        item.available
-                          ? 'bg-lime-400/20 border-lime-400 text-lime-400'
-                          : 'bg-red-400/20 border-red-400 text-red-400'
-                      }`}>
-                        {item.available ? 'Available' : 'Unavailable'}
-                      </span>
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      className="w-full"
-                      onClick={() => toggleAvailability(item.id, item.available)}
-                    >
-                      {item.available ? 'Mark Unavailable' : 'Mark Available'}
-                    </Button>
-                  </div>
-                </Card>
-              </motion.div>
-            ))}
-          </div>
-        ) : (
-          <Card className="p-12 text-center">
-            <Package className="w-16 h-16 mx-auto mb-4 text-gray-600" />
-            <p className="text-gray-400 text-lg mb-4">No items listed yet</p>
-            <Button onClick={() => setShowAddModal(true)}>
-              <Plus className="w-5 h-5 mr-2" />
-              Add Your First Item
-            </Button>
-          </Card>
-        )}
-
-        <div
-          ref={bookingsSectionRef}
-          className={`mt-12 rounded-3xl border border-white/5 bg-white/5 p-6 backdrop-blur-sm transition-shadow duration-300 ${
-            highlightBookings ? 'shadow-[0_0_0_3px_rgba(250,204,21,0.45)]' : 'shadow-none'
-          }`}
-        >
-          <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+        <div className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-3">
+          <Card className="flex items-center justify-between p-5">
             <div>
-              <h2 className="text-2xl font-bold text-white">Incoming Bookings</h2>
-              <p className="text-gray-300 text-sm">
-                Keep tabs on renter requests and tweak availability without leaving the dashboard.
+              <p className="text-sm text-gray-400">Total listings</p>
+              <p className="mt-2 text-3xl font-black text-white">{items.length}</p>
+            </div>
+            <Package className="h-10 w-10 text-cyan-300" />
+          </Card>
+          <Card className="flex items-center justify-between p-5">
+            <div>
+              <p className="text-sm text-gray-400">Active listings</p>
+              <p className="mt-2 text-3xl font-black text-white">{items.filter((item) => item.available).length}</p>
+            </div>
+            <BadgeCheck className="h-10 w-10 text-emerald-300" />
+          </Card>
+          <Card className="flex items-center justify-between p-5">
+            <div>
+              <p className="text-sm text-gray-400">Pending bookings</p>
+              <p className="mt-2 text-3xl font-black text-white">
+                {bookings.filter((booking) => booking.status === 'pending').length}
               </p>
             </div>
-          </div>
-
-          {bookingsLoading ? (
-            <div className="mt-6 space-y-4">
-              {[...Array(2)].map((_, i) => (
-                <Card key={i} className="h-28 animate-pulse bg-white/10">
-                  <div className="h-full w-full rounded-2xl bg-white/10" />
-                </Card>
-              ))}
-            </div>
-          ) : bookings.length > 0 ? (
-            <div className="mt-6 space-y-4">
-              {bookings.map((booking, index) => {
-                const item = itemLookup[booking.itemId];
-                return (
-                  <motion.div
-                    key={booking.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.05 }}
-                  >
-                    <Card className="p-6">
-                      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                        <div className="space-y-3">
-                          <div className="flex flex-wrap items-center gap-3">
-                            <h4 className="text-lg font-bold text-white">
-                              {item?.title || booking.itemTitle || 'Listing unavailable'}
-                            </h4>
-                            <span className={`px-3 py-1 text-xs font-semibold border rounded-lg ${getStatusColor(booking.status)}`}>
-                              {booking.status.toUpperCase()}
-                            </span>
-                          </div>
-                          <p className="text-sm text-gray-300">
-                            Renter: {booking.renterName || booking.renterEmail || 'Pending details'}
-                          </p>
-                          <div className="flex flex-wrap gap-6 text-sm text-gray-300">
-                            <div>
-                              <span className="block text-xs uppercase tracking-wide text-gray-500">Start</span>
-                              <span className="font-semibold text-white">
-                                {format(booking.startDate, 'MMM dd, yyyy')}
-                              </span>
-                            </div>
-                            <div>
-                              <span className="block text-xs uppercase tracking-wide text-gray-500">End</span>
-                              <span className="font-semibold text-white">
-                                {format(booking.endDate, 'MMM dd, yyyy')}
-                              </span>
-                            </div>
-                            <div>
-                              <span className="block text-xs uppercase tracking-wide text-gray-500">Total</span>
-                              <span className="font-semibold text-cyan-400">₹{booking.totalPrice}</span>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex flex-col gap-3 md:items-end">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            disabled={!item}
-                            onClick={() => item && toggleAvailability(item.id, item.available)}
-                          >
-                            {item?.available ? 'Mark Unavailable' : 'Mark Available'}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => navigate(`/item/${booking.itemId}`)}
-                          >
-                            View Listing
-                          </Button>
-                        </div>
-                      </div>
-                    </Card>
-                  </motion.div>
-                );
-              })}
-            </div>
-          ) : (
-            <Card className="mt-6 border-dashed border-white/20 bg-transparent p-10 text-center">
-              <Calendar className="mx-auto mb-4 h-12 w-12 text-gray-500" />
-              <p className="text-gray-400">No bookings yet. Share your listings to get your first rental!</p>
-            </Card>
-          )}
+            <CalendarDays className="h-10 w-10 text-amber-300" />
+          </Card>
         </div>
-      </div>
+      </motion.section>
+
+      <Card className="border-white/10 bg-white/5 p-6 backdrop-blur-2xl">
+        <div className="mb-6 flex flex-wrap gap-2">
+          <Button
+            variant={activeTab === 'listings' ? 'primary' : 'ghost'}
+            className={activeTab === 'listings' ? '' : 'border-white/20 text-gray-300'}
+            onClick={() => setActiveTab('listings')}
+          >
+            Listings
+          </Button>
+          <Button
+            variant={activeTab === 'bookings' ? 'primary' : 'ghost'}
+            className={activeTab === 'bookings' ? '' : 'border-white/20 text-gray-300'}
+            onClick={() => setActiveTab('bookings')}
+          >
+            Bookings
+          </Button>
+          <Button
+            variant={activeTab === 'analytics' ? 'primary' : 'ghost'}
+            className={activeTab === 'analytics' ? '' : 'border-white/20 text-gray-300'}
+            onClick={() => setActiveTab('analytics')}
+          >
+            Analytics
+          </Button>
+        </div>
+
+        <div className="mt-6">
+          {activeTab === 'listings' && renderListings()}
+          {activeTab === 'bookings' && renderBookings()}
+          {activeTab === 'analytics' && renderAnalytics()}
+        </div>
+      </Card>
 
       <AnimatePresence>
-        {showAddModal && (
+        {showAddModal ? (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50"
-            onClick={() => setShowAddModal(false)}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-8 backdrop-blur-sm"
+            onClick={closeModal}
           >
             <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
+              initial={{ scale: 0.92, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              onClick={(e) => e.stopPropagation()}
-              className="w-full max-w-lg"
+              exit={{ scale: 0.92, opacity: 0 }}
+              className="w-full max-w-3xl"
+              onClick={(event) => event.stopPropagation()}
             >
-              <Card className="p-6">
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-2xl font-bold text-white">Add New Item</h3>
+              <Card className="border-white/10 bg-black/85 p-8 backdrop-blur-2xl">
+                <div className="mb-6 flex items-center justify-between">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.35em] text-gray-500">Create listing</p>
+                    <h2 className="mt-2 text-2xl font-black text-white">Add a new rental item</h2>
+                    <p className="text-sm text-gray-400">{formSteps[currentStep].description}</p>
+                  </div>
                   <button
-                    onClick={() => setShowAddModal(false)}
-                    className="text-gray-400 hover:text-white transition-colors"
+                    type="button"
+                    onClick={closeModal}
+                    className="rounded-2xl border border-white/10 bg-white/5 px-2 py-1 text-gray-300 transition hover:text-white"
                   >
-                    <X className="w-6 h-6" />
+                    Close
                   </button>
                 </div>
 
-                <form onSubmit={handleAddItem} className="space-y-4">
-                  <Input
-                    label="Title"
-                    placeholder="Item name"
-                    value={formData.title}
-                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                    required
-                  />
+                <div className="mb-6 flex items-center gap-3">
+                  {formSteps.map((step, index) => (
+                    <div key={step.title} className="flex items-center gap-3">
+                      <div
+                        className={`flex h-9 w-9 items-center justify-center rounded-full border text-sm font-semibold ${
+                          index === currentStep
+                            ? 'border-cyan-400 bg-cyan-400/20 text-cyan-200'
+                            : index < currentStep
+                            ? 'border-emerald-400 bg-emerald-400/15 text-emerald-200'
+                            : 'border-white/15 bg-white/5 text-gray-400'
+                        }`}
+                      >
+                        {index + 1}
+                      </div>
+                      {index < formSteps.length - 1 ? <div className="h-px w-14 bg-white/15" /> : null}
+                    </div>
+                  ))}
+                </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-200 mb-2">
-                      Description
-                    </label>
-                    <textarea
-                      className="w-full px-4 py-3 bg-gray-900/50 border-2 border-white/20 rounded-xl text-white placeholder-gray-400 focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 transition-all backdrop-blur-sm"
-                      rows={3}
-                      placeholder="Describe your item"
-                      value={formData.description}
-                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                      required
-                    />
+                <motion.div
+                  key={currentStep}
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  transition={{ duration: 0.2 }}
+                  className="rounded-3xl border border-white/10 bg-white/5 p-6"
+                >
+                  {renderStepContent()}
+                </motion.div>
+
+                {uploadProgress > 0 && submitting ? (
+                  <div className="mt-4">
+                    <p className="mb-1 text-xs uppercase tracking-wide text-gray-400">Uploading images</p>
+                    <div className="h-2 rounded-full bg-white/10">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-purple-500"
+                        style={{ width: `${uploadProgress}%` }}
+                      />
+                    </div>
                   </div>
+                ) : null}
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-200 mb-2">
-                      Category
-                    </label>
-                    <select
-                      className="w-full px-4 py-3 bg-gray-900/50 border-2 border-white/20 rounded-xl text-white focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 transition-all backdrop-blur-sm"
-                      value={formData.category}
-                      onChange={(e) => setFormData({ ...formData, category: e.target.value as Item['category'] })}
-                    >
-                      <option value="clothes">Clothes</option>
-                      <option value="gadgets">Gadgets</option>
-                      <option value="books">Books</option>
-                      <option value="accessories">Accessories</option>
-                    </select>
-                  </div>
-
-                  <Input
-                    label="Price per Day (₹)"
-                    type="number"
-                    placeholder="50"
-                    value={formData.price}
-                    onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-                    required
-                    min="1"
-                  />
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-200 mb-2">
-                      Image
-                    </label>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      onChange={(e) => setImageFiles(Array.from(e.target.files || []))}
-                      className="w-full px-4 py-3 bg-gray-900/50 border-2 border-white/20 rounded-xl text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-cyan-400 file:text-black hover:file:bg-cyan-500 transition-all"
-                    />
-                  </div>
-
-                  <div className="flex space-x-3 pt-4">
-                    <Button type="submit" className="flex-1" disabled={submitting}>
-                      {submitting ? 'Adding...' : 'Add Item'}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={() => setShowAddModal(false)}
-                      disabled={submitting}
-                    >
+                <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
+                  <div className="flex gap-3">
+                    <Button variant="ghost" onClick={closeModal} disabled={submitting}>
                       Cancel
                     </Button>
+                    <Button variant="ghost" onClick={goPrevious} disabled={currentStep === 0 || submitting}>
+                      Previous
+                    </Button>
                   </div>
-                </form>
+                  {currentStep === formSteps.length - 1 ? (
+                    <Button onClick={handleSubmit} disabled={submitting}>
+                      {submitting ? 'Publishing…' : 'Publish listing'}
+                    </Button>
+                  ) : (
+                    <Button onClick={goNext} disabled={!canProceedStep}>
+                      Continue
+                    </Button>
+                  )}
+                </div>
               </Card>
             </motion.div>
           </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
     </div>
   );
 };
+
+export default ProviderDashboard;

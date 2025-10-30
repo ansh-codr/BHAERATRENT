@@ -41,6 +41,7 @@ export const Sidebar = ({ isOpen, onClose, navItems, showAddItem, onAddItem }: S
           <NavLink
             key={item.to}
             to={item.to}
+            end={item.to === '/'}
             className={({ isActive }) =>
               getNavClasses(
                 isActive || location.pathname === item.to || location.pathname.startsWith(`${item.to}/`)

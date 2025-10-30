@@ -1,6 +1,3 @@
-import { storage } from './firebase';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-
 export const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
 
 export function validateImageFile(file: File) {
@@ -13,52 +10,67 @@ export function validateImageFile(file: File) {
 }
 
 // Returns { url, thumb? } where thumb is a transformed URL (Cloudinary) if available
-export async function uploadImage(file: File, pathPrefix = 'uploads'): Promise<{ url: string; thumb?: string }> {
+export interface UploadOptions {
+  pathPrefix?: string;
+  onProgress?: (progress: number) => void;
+}
+
+export async function uploadImage(
+  file: File,
+  pathPrefixOrOptions: string | UploadOptions = 'uploads'
+): Promise<{ url: string; thumb?: string }> {
   validateImageFile(file);
 
-  const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
-  const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
+  let onProgress: UploadOptions['onProgress'];
 
-  if (cloudName && uploadPreset) {
-    try {
-      const url = `https://api.cloudinary.com/v1_1/${cloudName}/upload`;
-      const fd = new FormData();
-      fd.append('file', file);
-      fd.append('upload_preset', uploadPreset);
-
-      const res = await fetch(url, {
-        method: 'POST',
-        body: fd,
-      });
-
-      if (!res.ok) {
-        throw new Error('Cloudinary upload failed: ' + res.statusText);
-      }
-
-      const data = await res.json();
-      // data.secure_url and data.public_id and data.format are available
-      const urlRes: string = data.secure_url;
-      // Construct a thumbnail URL (transformations in URL path)
-      const publicId = data.public_id;
-      const format = data.format || '';
-      const thumb = `https://res.cloudinary.com/${cloudName}/image/upload/w_600,c_fill/${publicId}.${format}`;
-      return { url: urlRes, thumb };
-    } catch (err) {
-      console.warn('Cloudinary upload failed, falling back to Firebase Storage:', err);
-      // fall through to Firebase Storage
-    }
+  if (typeof pathPrefixOrOptions !== 'string') {
+    onProgress = pathPrefixOrOptions.onProgress;
   }
 
-  // Firebase Storage fallback
-  try {
-    const storageRef = ref(storage, `${pathPrefix}/${Date.now()}_${file.name}`);
-    await uploadBytes(storageRef, file);
-    const url = await getDownloadURL(storageRef);
-    return { url };
-  } catch (err) {
-    console.error('Firebase Storage upload failed:', err);
-    throw err;
+  const apiKey = import.meta.env.VITE_IMGBB_API_KEY || '64ddc0080a0798b4cf4e54283d0a1430';
+  if (!apiKey) {
+    throw new Error('Missing IMGBB API key.');
   }
+
+  const arrayBuffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(arrayBuffer);
+  let binary = '';
+  for (let index = 0; index < bytes.length; index += 1) {
+    binary += String.fromCharCode(bytes[index]);
+  }
+  const base64 = btoa(binary);
+
+  // notify caller that conversion is done
+  onProgress?.(20);
+
+  const formData = new FormData();
+  formData.append('image', base64);
+  formData.append('name', file.name.replace(/\s+/g, '_'));
+
+  const uploadUrl = new URL('https://api.imgbb.com/1/upload');
+  uploadUrl.searchParams.set('key', apiKey);
+
+  const response = await fetch(uploadUrl.toString(), {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Image upload failed: ${response.statusText}`);
+  }
+
+  const data = await response.json();
+
+  if (!data?.success) {
+    throw new Error('Image upload failed: unexpected response');
+  }
+
+  onProgress?.(100);
+
+  return {
+    url: data.data?.url,
+    thumb: data.data?.thumb?.url || data.data?.display_url,
+  };
 }
 
 export default uploadImage;
