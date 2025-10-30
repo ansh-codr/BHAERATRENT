@@ -10,6 +10,7 @@ export interface User {
   college?: string; // alias
   phone?: string;
   bio?: string;
+  collegeIdUrl?: string | null;
   notificationsEnabled?: boolean;
   tutorialCompleted?: boolean;
   isVerified: boolean;
@@ -49,6 +50,14 @@ export interface Booking {
   transactionId?: string;
   chatEnabled?: boolean;
   itemReceived?: boolean;
+  returnRequested?: boolean;
+  returnConfirmed?: boolean;
+  returnRequestedAt?: Date;
+  returnConfirmedAt?: Date;
+  itemReturned?: boolean;
+  lastMessagePreview?: string;
+  lastMessageAt?: Date;
+  lastMessageSenderId?: string;
   createdAt: Date;
 }
 

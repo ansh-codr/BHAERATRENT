@@ -15,7 +15,7 @@ import { User, UserRole } from '../types';
 interface AuthContextType {
   currentUser: User | null;
   loading: boolean;
-  signUp: (email: string, password: string, displayName: string) => Promise<void>;
+  signUp: (email: string, password: string, displayName: string, collegeIdUrl: string) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
@@ -105,6 +105,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           college: data.college || data.university || null,
           phone: data.phone || null,
           bio: data.bio || null,
+          collegeIdUrl: data.collegeIdUrl || null,
           notificationsEnabled: data.notificationsEnabled ?? true,
           tutorialCompleted: data.tutorialCompleted ?? false,
           isVerified: data.isVerified || false,
@@ -132,9 +133,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return unsubscribe;
   }, []);
 
-  const signUp = async (email: string, password: string, displayName: string) => {
+  const signUp = async (email: string, password: string, displayName: string, collegeIdUrl: string) => {
     if (!validateUniversityEmail(email)) {
       throw new Error('Only university email accounts are allowed to sign up.');
+    }
+
+    if (!collegeIdUrl) {
+      throw new Error('College ID verification is required to complete sign up.');
     }
 
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
@@ -144,6 +149,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       displayName,
       role: 'renter',
       isVerified: validateUniversityEmail(email),
+      collegeIdUrl,
       notificationsEnabled: true,
       tutorialCompleted: false,
       createdAt: new Date(),
@@ -173,6 +179,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           photoURL: userCredential.user.photoURL,
           role: 'renter',
           isVerified: true,
+          collegeIdUrl: null,
           notificationsEnabled: true,
           tutorialCompleted: false,
           createdAt: new Date(),
