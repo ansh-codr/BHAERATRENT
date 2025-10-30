@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useState, ChangeEvent } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Card } from '../components/ui/Card';
-import { ShoppingBag } from 'lucide-react';
+import { ShoppingBag, ImageUp, ShieldCheck } from 'lucide-react';
 import { motion } from 'framer-motion';
+import uploadImage, { validateImageFile } from '../lib/imageUploader';
 
 export const Signup = () => {
   const [email, setEmail] = useState('');
@@ -13,16 +14,25 @@ export const Signup = () => {
   const [displayName, setDisplayName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { signUp, signInWithGoogle } = useAuth();
+  const [collegeIdUrl, setCollegeIdUrl] = useState('');
+  const [collegeIdPreview, setCollegeIdPreview] = useState<string | null>(null);
+  const [uploadingId, setUploadingId] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const { signUp } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    setLoading(true);
 
+    if (!collegeIdUrl) {
+      setError('Please upload a clear photo of your college ID card to continue.');
+      return;
+    }
+
+    setLoading(true);
     try {
-      await signUp(email, password, displayName);
+      await signUp(email, password, displayName, collegeIdUrl);
       navigate('/onboarding');
     } catch (err: any) {
       setError(err.message || 'Failed to create account');
@@ -31,20 +41,37 @@ export const Signup = () => {
     }
   };
 
-  const handleGoogleSignIn = async () => {
-    setError('');
-    setLoading(true);
-
-    try {
-      await signInWithGoogle();
-      navigate('/onboarding');
-    } catch (err: any) {
-      setError(err.message || 'Failed to sign in with Google');
-    } finally {
-      setLoading(false);
-    }
+  const handleGoogleSignIn = () => {
+    setError('Google sign-in is temporarily disabled while we manually verify college ID cards. Please sign up with your university email above.');
   };
 
+  const handleCollegeIdUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setError('');
+    try {
+      validateImageFile(file);
+      setUploadingId(true);
+      setUploadProgress(0);
+
+      const { url, thumb } = await uploadImage(file, {
+        onProgress: (progress) => setUploadProgress(progress),
+      });
+
+      setCollegeIdUrl(url);
+      setCollegeIdPreview(thumb || url);
+    } catch (err: any) {
+      console.error('College ID upload failed:', err);
+      setError(err.message || 'Failed to upload college ID card. Please try again.');
+      setCollegeIdUrl('');
+      setCollegeIdPreview(null);
+    } finally {
+      setUploadingId(false);
+      setUploadProgress(0);
+      event.target.value = '';
+    }
+  };
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900/20 to-gray-900 flex items-center justify-center p-4">
       <motion.div
@@ -103,7 +130,65 @@ export const Signup = () => {
               minLength={6}
             />
 
-            <Button type="submit" className="w-full" disabled={loading}>
+            <div>
+              <label className="block text-sm font-medium text-gray-200 mb-2">College ID Card</label>
+              <div className="rounded-2xl border-2 border-dashed border-white/20 bg-gray-900/40 p-4">
+                <div className="flex items-start gap-4">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-cyan-500/15 text-cyan-200">
+                    <ImageUp className="h-6 w-6" />
+                  </div>
+                  <div className="flex-1 text-sm text-gray-300 space-y-2">
+                    <p className="font-semibold text-white">Upload your campus ID</p>
+                    <p className="text-gray-400 text-xs">
+                      To keep BharatRent trusted we verify each student manually. Share a clear photo of your official college ID card. Only verified partners you rent with can view it.
+                    </p>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="text-sm"
+                        onClick={() => document.getElementById('college-id-upload')?.click()}
+                        disabled={uploadingId}
+                      >
+                        {uploadingId ? 'Uploading…' : collegeIdUrl ? 'Replace ID' : 'Upload ID'}
+                      </Button>
+                      <input
+                        id="college-id-upload"
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleCollegeIdUpload}
+                        disabled={uploadingId}
+                      />
+                      {collegeIdUrl ? (
+                        <span className="inline-flex items-center gap-2 rounded-full border border-emerald-400/40 bg-emerald-400/10 px-3 py-1 text-xs font-semibold text-emerald-200">
+                          <ShieldCheck className="h-3 w-3" />
+                          ID ready for review
+                        </span>
+                      ) : null}
+                    </div>
+                    {uploadingId && uploadProgress > 0 ? (
+                      <div className="h-2 rounded-full bg-white/10">
+                        <div
+                          className="h-2 rounded-full bg-gradient-to-r from-cyan-400 to-purple-500"
+                          style={{ width: `${uploadProgress}%` }}
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+                {collegeIdPreview ? (
+                  <div className="mt-4 overflow-hidden rounded-xl border border-white/10 bg-black/30">
+                    <img src={collegeIdPreview} alt="Uploaded college ID" className="h-48 w-full object-cover" />
+                  </div>
+                ) : null}
+              </div>
+              <p className="mt-2 text-xs text-gray-500">
+                We store this securely and only surface it to confirmed lenders or renters you interact with.
+              </p>
+            </div>
+
+            <Button type="submit" className="w-full" disabled={loading || uploadingId}>
               {loading ? 'Creating Account...' : 'Create Account'}
             </Button>
           </form>
@@ -121,7 +206,7 @@ export const Signup = () => {
             variant="secondary"
             className="w-full"
             onClick={handleGoogleSignIn}
-            disabled={loading}
+            disabled={loading || uploadingId}
           >
             Continue with Google
           </Button>

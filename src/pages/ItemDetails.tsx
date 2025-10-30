@@ -112,6 +112,9 @@ export const ItemDetails = () => {
         paymentStatus: 'pending',
         chatEnabled: false,
         itemReceived: false,
+        returnRequested: false,
+        returnConfirmed: false,
+        itemReturned: false,
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now(),
       };
