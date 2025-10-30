@@ -33,8 +33,10 @@ import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Card } from '../components/ui/Card';
-import { Item, Booking } from '../types';
+import { Item, Booking, Transaction } from '../types';
 import { TutorialCards } from '../components/TutorialCards';
+import TransactionDetailsModal from '../components/payments/TransactionDetailsModal';
+import { listenToTransactionsByProvider } from '../services/transactions';
 
 const formSteps = [
   {
@@ -82,6 +84,9 @@ export const ProviderDashboard = () => {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loadingItems, setLoadingItems] = useState(true);
   const [loadingBookings, setLoadingBookings] = useState(true);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [transactionModalOpen, setTransactionModalOpen] = useState(false);
+  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
@@ -150,6 +155,13 @@ export const ProviderDashboard = () => {
     return () => unsubscribe();
   }, [currentUser]);
 
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const unsubscribe = listenToTransactionsByProvider(currentUser.uid, setTransactions);
+    return () => unsubscribe();
+  }, [currentUser]);
+
   const itemLookup = useMemo(
     () =>
       items.reduce<Record<string, Item>>((acc, item) => {
@@ -159,12 +171,21 @@ export const ProviderDashboard = () => {
     [items]
   );
 
+  const transactionLookup = useMemo(
+    () =>
+      transactions.reduce<Record<string, Transaction>>((acc, transaction) => {
+        acc[transaction.bookingId] = transaction;
+        return acc;
+      }, {}),
+    [transactions]
+  );
+
   const totalEarnings = useMemo(
     () =>
-      bookings
-        .filter((booking) => booking.status === 'confirmed' || booking.status === 'completed')
-        .reduce((sum, booking) => sum + (booking.totalPrice || 0), 0),
-    [bookings]
+      transactions
+        .filter((transaction) => transaction.status === 'success')
+        .reduce((sum, transaction) => sum + transaction.amount, 0),
+    [transactions]
   );
 
   const mostRentedItem = useMemo(() => {
@@ -624,6 +645,8 @@ export const ProviderDashboard = () => {
       <div className="space-y-4" ref={bookingsSectionRef}>
         {bookings.map((booking, index) => {
           const item = itemLookup[booking.itemId];
+          const transaction = transactionLookup[booking.id];
+          const paymentStatus = booking.paymentStatus || 'pending';
           return (
             <motion.div
               key={booking.id}
@@ -648,6 +671,21 @@ export const ProviderDashboard = () => {
                         }`}
                       >
                         {booking.status}
+                      </span>
+                      <span
+                        className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${
+                          paymentStatus === 'success'
+                            ? 'border-emerald-400 bg-emerald-400/15 text-emerald-200'
+                            : paymentStatus === 'failed'
+                            ? 'border-rose-400 bg-rose-400/15 text-rose-200'
+                            : 'border-amber-400 bg-amber-400/15 text-amber-200'
+                        }`}
+                      >
+                        {paymentStatus === 'success'
+                          ? 'Payment received'
+                          : paymentStatus === 'failed'
+                          ? 'Payment failed'
+                          : 'Awaiting payment'}
                       </span>
                     </div>
                     <p className="text-sm text-gray-400">
@@ -700,7 +738,38 @@ export const ProviderDashboard = () => {
                         View listing
                       </Button>
                     ) : null}
+                    {transaction ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setSelectedTransaction(transaction);
+                          setTransactionModalOpen(true);
+                        }}
+                      >
+                        View transaction
+                      </Button>
+                    ) : null}
+                    {!transaction && paymentStatus !== 'pending' ? (
+                      <p className="text-xs text-gray-500">Transaction syncing…</p>
+                    ) : null}
                   </div>
+                </div>
+                <div className="mt-4 flex flex-col gap-2 rounded-2xl border border-white/10 bg-white/5 p-4 text-xs text-gray-400 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-cyan-300" />
+                    {paymentStatus === 'success'
+                      ? `Paid via ${(booking.paymentMethod || transaction?.method || 'card').toUpperCase()} · Ref ${transaction?.referenceId || booking.transactionId}`
+                      : paymentStatus === 'failed'
+                      ? 'Renter payment attempt failed. Awaiting new payment.'
+                      : 'Waiting for renter to complete payment.'}
+                  </div>
+                  {transaction?.status === 'success' ? (
+                    <div className="flex items-center gap-2 text-emerald-300">
+                      <CheckCircle2 className="h-4 w-4" />
+                      Amount received ₹{transaction.amount}
+                    </div>
+                  ) : null}
                 </div>
               </Card>
             </motion.div>
@@ -929,6 +998,15 @@ export const ProviderDashboard = () => {
           </motion.div>
         ) : null}
       </AnimatePresence>
+
+      <TransactionDetailsModal
+        isOpen={transactionModalOpen}
+        transaction={selectedTransaction}
+        onClose={() => {
+          setTransactionModalOpen(false);
+          setSelectedTransaction(null);
+        }}
+      />
     </div>
   );
 };

@@ -39,10 +39,14 @@ export interface Booking {
   renterName?: string;
   renterEmail?: string;
   itemTitle?: string;
+  providerName?: string;
   startDate: Date;
   endDate: Date;
   totalPrice: number;
   status: 'pending' | 'confirmed' | 'active' | 'completed' | 'cancelled';
+  paymentStatus?: 'pending' | 'success' | 'failed';
+  paymentMethod?: PaymentMethod;
+  transactionId?: string;
   createdAt: Date;
 }
 
@@ -50,6 +54,15 @@ export interface Transaction {
   id: string;
   bookingId: string;
   amount: number;
-  status: 'pending' | 'completed' | 'refunded';
+  renterId: string;
+  providerId: string;
+  method: PaymentMethod;
+  status: 'pending' | 'success' | 'failed';
+  referenceId: string;
+  itemTitle?: string;
+  renterName?: string;
+  providerName?: string;
   createdAt: Date;
 }
+
+export type PaymentMethod = 'card' | 'upi' | 'wallet';

@@ -1,18 +1,27 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Card } from '../components/ui/Card';
-import { Calendar, Package, Clock, CheckCircle } from 'lucide-react';
+import { Calendar, Clock, CheckCircle, Wallet, CreditCard } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { TutorialCards } from '../components/TutorialCards';
-import { Booking } from '../types';
+import { Booking, Transaction } from '../types';
 import { format } from 'date-fns';
+import PaymentModal from '../components/payments/PaymentModal';
+import TransactionDetailsModal from '../components/payments/TransactionDetailsModal';
+import { listenToTransactionsByRenter } from '../services/transactions';
+import { Button } from '../components/ui/Button';
 
 export const RenterDashboard = () => {
   const { currentUser } = useAuth();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
+  const [transactionModalOpen, setTransactionModalOpen] = useState(false);
+  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -28,6 +37,9 @@ export const RenterDashboard = () => {
         startDate: doc.data().startDate?.toDate() || new Date(),
         endDate: doc.data().endDate?.toDate() || new Date(),
         createdAt: doc.data().createdAt?.toDate() || new Date(),
+        paymentStatus: doc.data().paymentStatus || 'pending',
+        paymentMethod: doc.data().paymentMethod,
+        transactionId: doc.data().transactionId,
       } as Booking));
 
       setBookings(fetchedBookings);
@@ -37,6 +49,13 @@ export const RenterDashboard = () => {
       setLoading(false);
     });
 
+    return () => unsubscribe();
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const unsubscribe = listenToTransactionsByRenter(currentUser.uid, setTransactions);
     return () => unsubscribe();
   }, [currentUser]);
 
@@ -53,6 +72,37 @@ export const RenterDashboard = () => {
       default:
         return 'bg-gray-400/20 border-gray-400 text-gray-400';
     }
+  };
+
+  const getPaymentBadge = (status: NonNullable<Booking['paymentStatus']>) => {
+    switch (status) {
+      case 'success':
+        return 'bg-emerald-400/15 border-emerald-400 text-emerald-200';
+      case 'failed':
+        return 'bg-rose-400/15 border-rose-400 text-rose-200';
+      default:
+        return 'bg-amber-400/15 border-amber-400 text-amber-200';
+    }
+  };
+
+  const totals = useMemo(() => {
+    const totalSpent = transactions
+      .filter((transaction) => transaction.status === 'success')
+      .reduce((sum, transaction) => sum + transaction.amount, 0);
+
+    return {
+      totalSpent,
+    };
+  }, [transactions]);
+
+  const openPaymentModal = (booking: Booking) => {
+    setSelectedBooking(booking);
+    setPaymentModalOpen(true);
+  };
+
+  const openTransactionModal = (transaction: Transaction) => {
+    setSelectedTransaction(transaction);
+    setTransactionModalOpen(true);
   };
 
   return (
@@ -107,11 +157,9 @@ export const RenterDashboard = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-gray-400 text-sm mb-1">Total Spent</p>
-                <p className="text-3xl font-black text-white">
-                  ₹{bookings.reduce((sum, b) => sum + b.totalPrice, 0)}
-                </p>
+                <p className="text-3xl font-black text-white">₹{totals.totalSpent}</p>
               </div>
-              <Package className="w-12 h-12 text-pink-400" />
+              <Wallet className="w-12 h-12 text-pink-400" />
             </div>
           </Card>
         </div>
@@ -135,13 +183,24 @@ export const RenterDashboard = () => {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.1 }}
               >
-                <Card className="p-6">
+                <Card className="p-6 space-y-4">
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <div className="flex items-center space-x-3 mb-2">
                         <h4 className="font-bold text-white text-lg">Booking #{booking.id.slice(0, 8)}</h4>
                         <span className={`px-3 py-1 border rounded-lg text-xs font-semibold ${getStatusColor(booking.status)}`}>
                           {booking.status.toUpperCase()}
+                        </span>
+                        <span
+                          className={`px-3 py-1 border rounded-lg text-xs font-semibold ${getPaymentBadge(
+                            booking.paymentStatus || 'pending'
+                          )}`}
+                        >
+                          {booking.paymentStatus === 'success'
+                            ? 'PAID'
+                            : booking.paymentStatus === 'failed'
+                            ? 'PAYMENT FAILED'
+                            : 'PAYMENT PENDING'}
                         </span>
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
@@ -164,18 +223,89 @@ export const RenterDashboard = () => {
                       </div>
                     </div>
                   </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-4 border-t border-white/10 pt-4">
+                    <div className="flex items-center gap-3 text-sm text-gray-400">
+                      <CreditCard className="h-4 w-4 text-cyan-300" />
+                      {booking.paymentStatus === 'success'
+                        ? `Paid via ${(booking.paymentMethod || 'card').toUpperCase()}`
+                        : booking.paymentStatus === 'failed'
+                        ? 'Last attempt failed. Please retry payment.'
+                        : 'Complete payment to confirm this booking.'}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {booking.paymentStatus !== 'success' ? (
+                        <Button
+                          size="sm"
+                          onClick={() => openPaymentModal(booking)}
+                          className="bg-gradient-to-r from-cyan-500 to-purple-500 text-black shadow-[4px_4px_0_rgba(0,0,0,0.55)]"
+                        >
+                          Pay Now
+                        </Button>
+                      ) : null}
+                      {booking.transactionId ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            const transaction = transactions.find(
+                              (entry) => entry.id === booking.transactionId || entry.bookingId === booking.id
+                            );
+                            if (transaction) {
+                              openTransactionModal(transaction);
+                            } else {
+                              openTransactionModal({
+                                id: 'temporary',
+                                bookingId: booking.id,
+                                amount: booking.totalPrice,
+                                renterId: booking.renterId,
+                                providerId: booking.providerId,
+                                method: booking.paymentMethod || 'card',
+                                status: 'pending',
+                                referenceId: booking.transactionId || 'N/A',
+                                createdAt: booking.createdAt,
+                                itemTitle: booking.itemTitle,
+                                renterName: booking.renterName,
+                                providerName: booking.providerName,
+                              });
+                            }
+                          }}
+                        >
+                          View Transaction
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
                 </Card>
               </motion.div>
             ))}
           </div>
         ) : (
-          <Card className="p-12 text-center">
-            <Calendar className="w-16 h-16 mx-auto mb-4 text-gray-600" />
-            <p className="text-gray-400 text-lg mb-2">No bookings yet</p>
+          <Card className="p-12 text-center space-y-3">
+            <Calendar className="w-16 h-16 mx-auto text-gray-600" />
+            <p className="text-gray-400 text-lg font-semibold">No bookings yet</p>
             <p className="text-gray-500">Start exploring items to rent!</p>
           </Card>
         )}
       </div>
+
+      <PaymentModal
+        isOpen={paymentModalOpen}
+        booking={selectedBooking}
+        onClose={() => {
+          setPaymentModalOpen(false);
+          setSelectedBooking(null);
+        }}
+      />
+
+      <TransactionDetailsModal
+        isOpen={transactionModalOpen}
+        transaction={selectedTransaction}
+        onClose={() => {
+          setTransactionModalOpen(false);
+          setSelectedTransaction(null);
+        }}
+      />
     </div>
   );
 };
