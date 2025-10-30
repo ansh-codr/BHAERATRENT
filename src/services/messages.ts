@@ -9,9 +9,12 @@ import {
   Timestamp,
   QueryDocumentSnapshot,
   DocumentData,
+  updateDoc,
+  doc,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Message } from '../types';
+import { createNotification } from './notifications';
 
 const COLLECTION = 'messages';
 
@@ -38,15 +41,52 @@ export const listenToMessages = (bookingId: string, callback: (messages: Message
   });
 };
 
-export const sendMessage = async (payload: {
+export interface SendMessagePayload {
   bookingId: string;
   senderId: string;
   receiverId: string;
   content: string;
-}) => {
-  await addDoc(collection(db, COLLECTION), {
-    ...payload,
+  bookingTitle?: string;
+  senderName?: string;
+}
+
+export const sendMessage = async (payload: SendMessagePayload) => {
+  const docRef = await addDoc(collection(db, COLLECTION), {
+    bookingId: payload.bookingId,
+    senderId: payload.senderId,
+    receiverId: payload.receiverId,
+    content: payload.content,
     read: false,
     createdAt: serverTimestamp(),
   });
+
+  try {
+    await updateDoc(doc(db, 'bookings', payload.bookingId), {
+      lastMessagePreview: payload.content.slice(0, 160),
+      lastMessageAt: serverTimestamp(),
+      lastMessageSenderId: payload.senderId,
+    });
+  } catch (error) {
+    console.error('Failed to update booking with last message metadata:', error);
+  }
+
+  try {
+    await createNotification({
+      userId: payload.receiverId,
+      title: 'New chat message',
+      body:
+        payload.senderName && payload.bookingTitle
+          ? `${payload.senderName} sent a message about ${payload.bookingTitle}.`
+          : 'You have a new message about your booking.',
+      type: 'chat',
+      metadata: {
+        bookingId: payload.bookingId,
+        senderId: payload.senderId,
+      },
+    });
+  } catch (error) {
+    console.error('Failed to create chat notification:', error);
+  }
+
+  return docRef.id;
 };

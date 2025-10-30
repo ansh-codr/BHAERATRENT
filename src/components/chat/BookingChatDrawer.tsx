@@ -12,9 +12,19 @@ interface BookingChatDrawerProps {
   onClose: () => void;
   currentUserId: string;
   counterpartName?: string;
+  currentUserName?: string;
+  onOpenCounterpartProfile?: (userId: string) => void;
 }
 
-const BookingChatDrawer = ({ booking, isOpen, onClose, currentUserId, counterpartName }: BookingChatDrawerProps) => {
+const BookingChatDrawer = ({
+  booking,
+  isOpen,
+  onClose,
+  currentUserId,
+  counterpartName,
+  currentUserName,
+  onOpenCounterpartProfile,
+}: BookingChatDrawerProps) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
@@ -48,6 +58,11 @@ const BookingChatDrawer = ({ booking, isOpen, onClose, currentUserId, counterpar
     return booking.renterId === currentUserId ? booking.providerId : booking.renterId;
   }, [booking, currentUserId]);
 
+  const handleViewProfile = () => {
+    if (!counterpartId || !onOpenCounterpartProfile) return;
+    onOpenCounterpartProfile(counterpartId);
+  };
+
   const handleSend = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!booking || !draft.trim() || sending || !counterpartId) return;
@@ -59,6 +74,8 @@ const BookingChatDrawer = ({ booking, isOpen, onClose, currentUserId, counterpar
         senderId: currentUserId,
         receiverId: counterpartId,
         content: draft.trim(),
+        bookingTitle: booking.itemTitle,
+        senderName: currentUserName,
       });
       setDraft('');
     } finally {
@@ -83,13 +100,24 @@ const BookingChatDrawer = ({ booking, isOpen, onClose, currentUserId, counterpar
                 <h3 className="text-xl font-black text-white">{counterpartName || 'Conversation'}</h3>
                 <p className="text-xs text-gray-400">Booking #{booking.id.slice(0, 8)}</p>
               </div>
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-full border border-white/10 bg-white/5 p-2 text-gray-400 transition hover:text-white"
-              >
-                <X className="h-4 w-4" />
-              </button>
+              <div className="flex items-center gap-2">
+                {onOpenCounterpartProfile && counterpartId ? (
+                  <button
+                    type="button"
+                    onClick={handleViewProfile}
+                    className="rounded-full border border-cyan-400/40 bg-cyan-400/10 px-3 py-1 text-xs font-semibold text-cyan-100 transition hover:border-cyan-400/60 hover:text-white"
+                  >
+                    View profile
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="rounded-full border border-white/10 bg-white/5 p-2 text-gray-400 transition hover:text-white"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">

@@ -42,11 +42,11 @@ export const usePaymentSimulator = () => {
       setError(null);
       setReferenceId(null);
 
-      await sleep();
+    await sleep();
 
-  const success = Math.random() > 0.1;
-  const reference = generateReferenceId();
-  const transactionStatus: Transaction['status'] = success ? 'success' : 'failed';
+    const success = Math.random() > 0.1;
+    const reference = generateReferenceId();
+    const transactionStatus: Transaction['status'] = success ? 'success' : 'failed';
 
       try {
         const transactionPayload: Omit<Transaction, 'id' | 'createdAt'> = {
@@ -70,8 +70,11 @@ export const usePaymentSimulator = () => {
             status: 'confirmed',
             paymentMethod: method,
             transactionId,
-             chatEnabled: true,
-             itemReceived: false,
+            chatEnabled: true,
+            itemReceived: false,
+            returnRequested: false,
+            returnConfirmed: false,
+            itemReturned: false,
             updatedAt: Timestamp.now(),
           });
 
@@ -94,7 +97,7 @@ export const usePaymentSimulator = () => {
           return { status: 'success', referenceId: reference };
         }
 
-  await createTransaction(pruneUndefined(transactionPayload));
+        await createTransaction(pruneUndefined(transactionPayload));
         await updateDoc(doc(db, 'bookings', booking.id), {
           paymentStatus: 'failed',
           paymentMethod: method,

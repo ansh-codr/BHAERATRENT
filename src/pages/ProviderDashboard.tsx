@@ -38,6 +38,8 @@ import { TutorialCards } from '../components/TutorialCards';
 import TransactionDetailsModal from '../components/payments/TransactionDetailsModal';
 import { listenToTransactionsByProvider } from '../services/transactions';
 import BookingChatDrawer from '../components/chat/BookingChatDrawer';
+import { createNotification } from '../services/notifications';
+import UserProfileModal from '../components/users/UserProfileModal';
 
 const formSteps = [
   {
@@ -90,6 +92,9 @@ export const ProviderDashboard = () => {
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatBooking, setChatBooking] = useState<Booking | null>(null);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [profileUserId, setProfileUserId] = useState<string | null>(null);
+  const [profileHeading, setProfileHeading] = useState('');
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
@@ -139,13 +144,38 @@ export const ProviderDashboard = () => {
     const unsubscribe = onSnapshot(
       bookingsQuery,
       (snapshot) => {
-        const fetchedBookings: Booking[] = snapshot.docs.map((bookingDoc) => ({
-          id: bookingDoc.id,
-          ...bookingDoc.data(),
-          startDate: bookingDoc.data().startDate?.toDate() || new Date(),
-          endDate: bookingDoc.data().endDate?.toDate() || new Date(),
-          createdAt: bookingDoc.data().createdAt?.toDate() || new Date(),
-        })) as Booking[];
+        const fetchedBookings: Booking[] = snapshot.docs.map((bookingDoc) => {
+          const data = bookingDoc.data();
+          const toDate = (value: unknown): Date | undefined => {
+            if (value instanceof Timestamp) return value.toDate();
+            if (value instanceof Date) return value;
+            return undefined;
+          };
+
+          const normalized = {
+            ...(data as Partial<Booking>),
+            id: bookingDoc.id,
+            startDate: toDate(data.startDate) || new Date(),
+            endDate: toDate(data.endDate) || new Date(),
+            createdAt: toDate(data.createdAt) || new Date(),
+            updatedAt: toDate(data.updatedAt) || undefined,
+            paymentStatus: data.paymentStatus || 'pending',
+            paymentMethod: data.paymentMethod,
+            transactionId: data.transactionId,
+            chatEnabled: Boolean(data.chatEnabled),
+            itemReceived: Boolean(data.itemReceived),
+            returnRequested: Boolean(data.returnRequested),
+            returnConfirmed: Boolean(data.returnConfirmed),
+            itemReturned: Boolean(data.itemReturned),
+            returnRequestedAt: toDate(data.returnRequestedAt),
+            returnConfirmedAt: toDate(data.returnConfirmedAt),
+            lastMessageAt: toDate(data.lastMessageAt),
+            lastMessagePreview: data.lastMessagePreview,
+            lastMessageSenderId: data.lastMessageSenderId,
+          };
+
+          return normalized as Booking;
+        });
         setBookings(fetchedBookings);
         setLoadingBookings(false);
       },
