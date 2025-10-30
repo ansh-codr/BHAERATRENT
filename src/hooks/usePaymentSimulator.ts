@@ -21,6 +21,9 @@ export interface PaymentResult {
 const sleep = (min = 1500, max = 2000) =>
   new Promise((resolve) => setTimeout(resolve, Math.floor(Math.random() * (max - min + 1)) + min));
 
+const pruneUndefined = <T extends Record<string, unknown>>(obj: T) =>
+  Object.fromEntries(Object.entries(obj).filter(([, value]) => value !== undefined)) as T;
+
 export const usePaymentSimulator = () => {
   const [status, setStatus] = useState<PaymentStatusState>('idle');
   const [referenceId, setReferenceId] = useState<string | null>(null);
@@ -59,7 +62,7 @@ export const usePaymentSimulator = () => {
         };
 
         if (success) {
-          const transactionId = await createTransaction(transactionPayload);
+          const transactionId = await createTransaction(pruneUndefined(transactionPayload));
 
           await updateDoc(doc(db, 'bookings', booking.id), {
             paymentStatus: 'success',
@@ -75,7 +78,7 @@ export const usePaymentSimulator = () => {
           return { status: 'success', referenceId: reference };
         }
 
-        await createTransaction(transactionPayload);
+  await createTransaction(pruneUndefined(transactionPayload));
         await updateDoc(doc(db, 'bookings', booking.id), {
           paymentStatus: 'failed',
           paymentMethod: method,
