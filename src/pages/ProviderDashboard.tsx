@@ -244,6 +244,60 @@ export const ProviderDashboard = () => {
     };
   }, [bookings, itemLookup]);
 
+  const openProfile = (userId: string, label?: string) => {
+    setProfileUserId(userId);
+    setProfileHeading(label || 'User profile');
+    setProfileOpen(true);
+  };
+
+  const closeProfile = () => {
+    setProfileOpen(false);
+    setProfileHeading('');
+    setProfileUserId(null);
+  };
+
+  const handleConfirmReturn = async (booking: Booking) => {
+    try {
+      await updateDoc(doc(db, 'bookings', booking.id), {
+        status: 'completed',
+        returnRequested: false,
+        returnConfirmed: true,
+        itemReturned: true,
+        returnConfirmedAt: Timestamp.now(),
+        chatEnabled: false,
+        updatedAt: Timestamp.now(),
+      });
+
+      if (booking.itemId) {
+        try {
+          await updateDoc(doc(db, 'items', booking.itemId), {
+            available: true,
+            updatedAt: Timestamp.now(),
+          });
+        } catch (itemError) {
+          console.warn('Failed to update item availability after return confirmation:', itemError);
+        }
+      }
+
+      await createNotification({
+        userId: booking.renterId,
+        title: 'Return confirmed',
+        body: `${booking.providerName || 'Your lender'} confirmed the return of ${booking.itemTitle || 'the item'}.`,
+        type: 'booking',
+        metadata: {
+          bookingId: booking.id,
+          providerId: booking.providerId,
+          renterId: booking.renterId,
+        },
+      });
+
+      toast.success('Return confirmed and booking completed.');
+    } catch (error) {
+      console.error('Failed to confirm item return:', error);
+      toast.error('Could not confirm the item return. Please try again.');
+    }
+  };
+
   const resetForm = () => {
     setFormData(initialFormState);
     setImageFiles([]);
@@ -680,6 +734,10 @@ export const ProviderDashboard = () => {
           const item = itemLookup[booking.itemId];
           const transaction = transactionLookup[booking.id];
           const paymentStatus = booking.paymentStatus || 'pending';
+          const renterDisplayName = booking.renterName || booking.renterEmail || booking.renterId;
+          const canOpenChat = Boolean(booking.chatEnabled) && booking.status !== 'completed';
+          const canConfirmReturn = Boolean(booking.returnRequested) && booking.status !== 'completed';
+          const openRenterProfile = () => openProfile(booking.renterId, renterDisplayName);
           const openChat = () => {
             if (!currentUser) {
               toast.error('Please log in to chat.');
@@ -728,9 +786,26 @@ export const ProviderDashboard = () => {
                           ? 'Payment failed'
                           : 'Awaiting payment'}
                       </span>
+                      {booking.returnRequested ? (
+                        <span className="rounded-full border border-amber-400 bg-amber-400/15 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-amber-100">
+                          Return requested
+                        </span>
+                      ) : null}
+                      {booking.itemReturned && booking.status === 'completed' ? (
+                        <span className="rounded-full border border-emerald-400 bg-emerald-400/15 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-200">
+                          Returned
+                        </span>
+                      ) : null}
                     </div>
                     <p className="text-sm text-gray-400">
-                      Renter: {booking.renterName || booking.renterEmail || booking.renterId}
+                      Renter:{' '}
+                      <button
+                        type="button"
+                        onClick={openRenterProfile}
+                        className="font-semibold text-cyan-300 transition hover:text-cyan-200"
+                      >
+                        {renterDisplayName}
+                      </button>
                     </p>
                     <div className="flex flex-wrap gap-6 text-sm text-gray-300">
                       <div>
@@ -779,9 +854,14 @@ export const ProviderDashboard = () => {
                         View listing
                       </Button>
                     ) : null}
-                    {booking.chatEnabled ? (
+                    {canOpenChat ? (
                       <Button size="sm" variant="ghost" onClick={openChat}>
                         Open chat
+                      </Button>
+                    ) : null}
+                    {canConfirmReturn ? (
+                      <Button size="sm" variant="secondary" onClick={() => handleConfirmReturn(booking)}>
+                        Confirm return
                       </Button>
                     ) : null}
                     {transaction ? (
@@ -817,6 +897,18 @@ export const ProviderDashboard = () => {
                     </div>
                   ) : null}
                 </div>
+                {booking.returnRequested ? (
+                  <div className="mt-3 flex items-center gap-2 rounded-2xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
+                    <Clock className="h-4 w-4" />
+                    Renter marked the item as returned. Confirm once inspected to free the listing.
+                  </div>
+                ) : null}
+                {booking.lastMessagePreview ? (
+                  <div className="mt-3 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-gray-300">
+                    <p className="text-xs uppercase tracking-wide text-gray-500">Latest message</p>
+                    <p className="mt-1 text-sm text-white/90">{booking.lastMessagePreview}</p>
+                  </div>
+                ) : null}
               </Card>
             </motion.div>
           );
@@ -1063,6 +1155,16 @@ export const ProviderDashboard = () => {
         }}
         currentUserId={currentUser?.uid || ''}
         counterpartName={chatBooking?.renterName}
+        currentUserName={currentUser?.displayName || currentUser?.email || undefined}
+        onOpenCounterpartProfile={(userId) =>
+          openProfile(userId, chatBooking?.renterName || chatBooking?.renterEmail || 'Renter')
+        }
+      />
+      <UserProfileModal
+        userId={profileUserId}
+        isOpen={profileOpen}
+        heading={profileHeading || undefined}
+        onClose={closeProfile}
       />
     </div>
   );

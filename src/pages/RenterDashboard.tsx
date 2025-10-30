@@ -15,6 +15,7 @@ import { createNotification } from '../services/notifications';
 import { Button } from '../components/ui/Button';
 import BookingChatDrawer from '../components/chat/BookingChatDrawer';
 import toast from 'react-hot-toast';
+import UserProfileModal from '../components/users/UserProfileModal';
 
 export const RenterDashboard = () => {
   const { currentUser } = useAuth();
@@ -27,6 +28,9 @@ export const RenterDashboard = () => {
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatBooking, setChatBooking] = useState<Booking | null>(null);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [profileUserId, setProfileUserId] = useState<string | null>(null);
+  const [profileHeading, setProfileHeading] = useState('');
 
   useEffect(() => {
     if (!currentUser) return;
@@ -35,26 +39,50 @@ export const RenterDashboard = () => {
     const bookingsRef = collection(db, 'bookings');
     const q = query(bookingsRef, where('renterId', '==', currentUser.uid));
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const fetchedBookings: Booking[] = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        startDate: doc.data().startDate?.toDate() || new Date(),
-        endDate: doc.data().endDate?.toDate() || new Date(),
-        createdAt: doc.data().createdAt?.toDate() || new Date(),
-        paymentStatus: doc.data().paymentStatus || 'pending',
-        paymentMethod: doc.data().paymentMethod,
-        transactionId: doc.data().transactionId,
-        chatEnabled: Boolean(doc.data().chatEnabled),
-        itemReceived: Boolean(doc.data().itemReceived),
-      } as Booking));
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const fetchedBookings: Booking[] = snapshot.docs.map((docSnapshot) => {
+          const data = docSnapshot.data();
+          const toDate = (value: unknown): Date | undefined => {
+            if (value instanceof Timestamp) return value.toDate();
+            if (value instanceof Date) return value;
+            return undefined;
+          };
 
-      setBookings(fetchedBookings);
-      setLoading(false);
-    }, (err) => {
-      console.error('Realtime bookings error:', err);
-      setLoading(false);
-    });
+          const normalized = {
+            ...(data as Partial<Booking>),
+            id: docSnapshot.id,
+            startDate: toDate(data.startDate) || new Date(),
+            endDate: toDate(data.endDate) || new Date(),
+            createdAt: toDate(data.createdAt) || new Date(),
+            updatedAt: toDate(data.updatedAt) || undefined,
+            paymentStatus: data.paymentStatus || 'pending',
+            paymentMethod: data.paymentMethod,
+            transactionId: data.transactionId,
+            chatEnabled: Boolean(data.chatEnabled),
+            itemReceived: Boolean(data.itemReceived),
+            returnRequested: Boolean(data.returnRequested),
+            returnConfirmed: Boolean(data.returnConfirmed),
+            itemReturned: Boolean(data.itemReturned),
+            returnRequestedAt: toDate(data.returnRequestedAt),
+            returnConfirmedAt: toDate(data.returnConfirmedAt),
+            lastMessageAt: toDate(data.lastMessageAt),
+            lastMessagePreview: data.lastMessagePreview,
+            lastMessageSenderId: data.lastMessageSenderId,
+          };
+
+          return normalized as Booking;
+        });
+
+        setBookings(fetchedBookings);
+        setLoading(false);
+      },
+      (err) => {
+        console.error('Realtime bookings error:', err);
+        setLoading(false);
+      }
+    );
 
     return () => unsubscribe();
   }, [currentUser]);
@@ -112,6 +140,18 @@ export const RenterDashboard = () => {
     setTransactionModalOpen(true);
   };
 
+  const openProfileModal = (userId: string, label?: string) => {
+    setProfileUserId(userId);
+    setProfileHeading(label || 'User profile');
+    setProfileOpen(true);
+  };
+
+  const closeProfileModal = () => {
+    setProfileOpen(false);
+    setProfileUserId(null);
+    setProfileHeading('');
+  };
+
   const openChat = (booking: Booking) => {
     if (!currentUser) {
       toast.error('Please log in to chat.');
@@ -143,6 +183,34 @@ export const RenterDashboard = () => {
     } catch (error) {
       console.error('Failed to confirm receipt:', error);
       toast.error('Could not update booking. Please retry.');
+    }
+  };
+
+  const handleReturnRequest = async (booking: Booking) => {
+    if (!currentUser) return;
+    try {
+      await updateDoc(doc(db, 'bookings', booking.id), {
+        returnRequested: true,
+        returnRequestedAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
+      });
+
+      await createNotification({
+        userId: booking.providerId,
+        title: 'Return requested',
+        body: `${booking.renterName || 'Your renter'} marked ${booking.itemTitle || 'the item'} as ready for pickup.`,
+        type: 'booking',
+        metadata: {
+          bookingId: booking.id,
+          renterId: booking.renterId,
+          providerId: booking.providerId,
+        },
+      });
+
+      toast.success('Return requested. The provider has been notified.');
+    } catch (error) {
+      console.error('Failed to request return:', error);
+      toast.error('Could not request the return. Please try again.');
     }
   };
 
@@ -224,6 +292,13 @@ export const RenterDashboard = () => {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.1 }}
               >
+                {(() => {
+                  const providerDisplayName = booking.providerName || booking.providerId;
+                  const canOpenChat = booking.paymentStatus === 'success' && Boolean(booking.chatEnabled);
+                  const canRequestReturn =
+                    booking.paymentStatus === 'success' && Boolean(booking.itemReceived) && !booking.returnRequested;
+                  const providerProfile = () => openProfileModal(booking.providerId, providerDisplayName);
+                  return (
                 <Card className="p-6 space-y-4">
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
@@ -243,7 +318,27 @@ export const RenterDashboard = () => {
                             ? 'PAYMENT FAILED'
                             : 'PAYMENT PENDING'}
                         </span>
+                        {booking.returnRequested ? (
+                          <span className="px-3 py-1 border rounded-lg text-xs font-semibold border-amber-400/60 bg-amber-400/15 text-amber-100">
+                            RETURN REQUESTED
+                          </span>
+                        ) : null}
+                        {booking.itemReturned && booking.status === 'completed' ? (
+                          <span className="px-3 py-1 border rounded-lg text-xs font-semibold border-emerald-400/60 bg-emerald-400/15 text-emerald-200">
+                            RETURNED
+                          </span>
+                        ) : null}
                       </div>
+                      <p className="text-sm text-gray-400">
+                        Provider:{' '}
+                        <button
+                          type="button"
+                          onClick={providerProfile}
+                          className="font-semibold text-cyan-300 transition hover:text-cyan-200"
+                        >
+                          {providerDisplayName}
+                        </button>
+                      </p>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
                         <div>
                           <p className="text-gray-400 text-sm mb-1">Start Date</p>
@@ -284,11 +379,11 @@ export const RenterDashboard = () => {
                           Pay Now
                         </Button>
                       ) : null}
-                        {booking.paymentStatus === 'success' && booking.chatEnabled ? (
-                          <Button size="sm" variant="ghost" onClick={() => openChat(booking)}>
-                            Open Chat
-                          </Button>
-                        ) : null}
+                      {canOpenChat ? (
+                        <Button size="sm" variant="ghost" onClick={() => openChat(booking)}>
+                          Open Chat
+                        </Button>
+                      ) : null}
                       {booking.transactionId ? (
                         <Button
                           size="sm"
@@ -325,9 +420,29 @@ export const RenterDashboard = () => {
                           Confirm Item Received
                         </Button>
                       ) : null}
+                      {canRequestReturn ? (
+                        <Button size="sm" variant="secondary" onClick={() => handleReturnRequest(booking)}>
+                          Request Return
+                        </Button>
+                      ) : null}
                     </div>
                   </div>
+
+                  {booking.returnRequested ? (
+                    <div className="rounded-2xl border border-amber-400/25 bg-amber-400/10 p-3 text-sm text-amber-100">
+                      Waiting for {booking.providerName || 'the provider'} to confirm the return.
+                    </div>
+                  ) : null}
+
+                  {booking.lastMessagePreview ? (
+                    <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-sm text-gray-200">
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Latest message</p>
+                      <p className="mt-1 text-white/90">{booking.lastMessagePreview}</p>
+                    </div>
+                  ) : null}
                 </Card>
+                  );
+                })()}
               </motion.div>
             ))}
           </div>
@@ -367,6 +482,16 @@ export const RenterDashboard = () => {
         }}
         currentUserId={currentUser?.uid || ''}
         counterpartName={chatBooking?.providerName}
+        currentUserName={currentUser?.displayName || currentUser?.email || undefined}
+        onOpenCounterpartProfile={(userId) =>
+          openProfileModal(userId, chatBooking?.providerName || 'Provider')
+        }
+      />
+      <UserProfileModal
+        userId={profileUserId}
+        isOpen={profileOpen}
+        heading={profileHeading || undefined}
+        onClose={closeProfileModal}
       />
     </div>
   );
