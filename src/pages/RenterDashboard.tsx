@@ -285,21 +285,21 @@ export const RenterDashboard = () => {
           </div>
         ) : bookings.length > 0 ? (
           <div className="space-y-4">
-            {bookings.map((booking, index) => (
-              <motion.div
-                key={booking.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.1 }}
-              >
-                {(() => {
-                  const providerDisplayName = booking.providerName || booking.providerId;
-                  const canOpenChat = booking.paymentStatus === 'success' && Boolean(booking.chatEnabled);
-                  const canRequestReturn =
-                    booking.paymentStatus === 'success' && Boolean(booking.itemReceived) && !booking.returnRequested;
-                  const providerProfile = () => openProfileModal(booking.providerId, providerDisplayName);
-                  return (
-                <Card className="p-6 space-y-4">
+            {bookings.map((booking, index) => {
+              const providerDisplayName = booking.providerName || booking.providerId;
+              const canOpenChat = booking.paymentStatus === 'success' && Boolean(booking.chatEnabled);
+              const canRequestReturn =
+                booking.paymentStatus === 'success' && Boolean(booking.itemReceived) && !booking.returnRequested;
+              const providerProfile = () => openProfileModal(booking.providerId, providerDisplayName);
+
+              return (
+                <motion.div
+                  key={booking.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.1 }}
+                >
+                  <Card className="p-6 space-y-4">
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <div className="flex items-center space-x-3 mb-2">
@@ -440,11 +440,10 @@ export const RenterDashboard = () => {
                       <p className="mt-1 text-white/90">{booking.lastMessagePreview}</p>
                     </div>
                   ) : null}
-                </Card>
-                  );
-                })()}
-              </motion.div>
-            ))}
+                  </Card>
+                </motion.div>
+              );
+            })}
           </div>
         ) : (
           <Card className="p-12 text-center space-y-3">
