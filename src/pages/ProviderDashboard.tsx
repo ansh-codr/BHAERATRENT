@@ -22,9 +22,10 @@ import {
   XCircle,
   Clock,
   CalendarDays,
+  History,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { format } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import uploadImage, { validateImageFile } from '../lib/imageUploader';
@@ -33,12 +34,13 @@ import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Card } from '../components/ui/Card';
-import { Item, Booking, Transaction } from '../types';
+import { Item, Booking, Transaction, Activity } from '../types';
 import { TutorialCards } from '../components/TutorialCards';
 import TransactionDetailsModal from '../components/payments/TransactionDetailsModal';
 import { listenToTransactionsByProvider } from '../services/transactions';
 import BookingChatDrawer from '../components/chat/BookingChatDrawer';
 import { createNotification } from '../services/notifications';
+import { listenToActivities } from '../services/activities';
 import UserProfileModal from '../components/users/UserProfileModal';
 
 const formSteps = [
@@ -95,6 +97,8 @@ export const ProviderDashboard = () => {
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileUserId, setProfileUserId] = useState<string | null>(null);
   const [profileHeading, setProfileHeading] = useState('');
+  const [activities, setActivities] = useState<Activity[]>([]);
+  const [activitiesLoading, setActivitiesLoading] = useState(true);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
@@ -193,6 +197,22 @@ export const ProviderDashboard = () => {
     if (!currentUser) return;
 
     const unsubscribe = listenToTransactionsByProvider(currentUser.uid, setTransactions);
+    return () => unsubscribe();
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (!currentUser) {
+      setActivities([]);
+      setActivitiesLoading(false);
+      return;
+    }
+
+    setActivitiesLoading(true);
+    const unsubscribe = listenToActivities(currentUser.uid, (entries) => {
+      setActivities(entries);
+      setActivitiesLoading(false);
+    });
+
     return () => unsubscribe();
   }, [currentUser]);
 
@@ -1036,6 +1056,51 @@ export const ProviderDashboard = () => {
           {activeTab === 'listings' && renderListings()}
           {activeTab === 'bookings' && renderBookings()}
           {activeTab === 'analytics' && renderAnalytics()}
+        </div>
+      </Card>
+
+      <Card className="border-white/10 bg-white/5 p-6 backdrop-blur-2xl">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-xs uppercase tracking-[0.35em] text-gray-500">Recent activity</p>
+            <h2 className="mt-2 text-xl font-bold text-white">Keep track of your moves</h2>
+            <p className="text-sm text-gray-400">Listings you add and bookings you handle show up here.</p>
+          </div>
+          <div className="hidden h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/5 text-cyan-300 sm:flex">
+            <History className="h-5 w-5" />
+          </div>
+        </div>
+
+        <div className="mt-6 space-y-4">
+          {activitiesLoading ? (
+            <div className="space-y-3">
+              {[...Array(3)].map((_, index) => (
+                <div key={index} className="h-16 animate-pulse rounded-2xl border border-white/10 bg-white/5" />
+              ))}
+            </div>
+          ) : activities.length > 0 ? (
+            activities.map((activity) => (
+              <div
+                key={activity.id}
+                className="flex items-start gap-3 rounded-2xl border border-white/10 bg-black/30 p-4"
+              >
+                <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-cyan-300">
+                  <History className="h-4 w-4" />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold text-white">{activity.title}</p>
+                  <p className="text-sm text-gray-400">{activity.description}</p>
+                  <p className="text-xs uppercase tracking-wide text-gray-500">
+                    {formatDistanceToNow(activity.createdAt, { addSuffix: true })}
+                  </p>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="rounded-2xl border border-dashed border-white/15 bg-black/30 p-6 text-sm text-gray-400">
+              No activity yet. Publish a listing or manage a booking to see updates here.
+            </div>
+          )}
         </div>
       </Card>
 

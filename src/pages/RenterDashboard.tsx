@@ -3,14 +3,15 @@ import { collection, query, where, onSnapshot, doc, updateDoc, Timestamp } from 
 import { db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Card } from '../components/ui/Card';
-import { Calendar, Clock, CheckCircle, Wallet, CreditCard } from 'lucide-react';
+import { Calendar, Clock, CheckCircle, Wallet, CreditCard, History } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { TutorialCards } from '../components/TutorialCards';
-import { Booking, Transaction } from '../types';
-import { format } from 'date-fns';
+import { Booking, Transaction, Activity } from '../types';
+import { format, formatDistanceToNow } from 'date-fns';
 import PaymentModal from '../components/payments/PaymentModal';
 import TransactionDetailsModal from '../components/payments/TransactionDetailsModal';
 import { listenToTransactionsByRenter } from '../services/transactions';
+import { listenToActivities } from '../services/activities';
 import { createNotification } from '../services/notifications';
 import { Button } from '../components/ui/Button';
 import BookingChatDrawer from '../components/chat/BookingChatDrawer';
@@ -31,6 +32,8 @@ export const RenterDashboard = () => {
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileUserId, setProfileUserId] = useState<string | null>(null);
   const [profileHeading, setProfileHeading] = useState('');
+  const [activities, setActivities] = useState<Activity[]>([]);
+  const [activitiesLoading, setActivitiesLoading] = useState(true);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -92,6 +95,22 @@ export const RenterDashboard = () => {
     if (!currentUser) return;
 
     const unsubscribe = listenToTransactionsByRenter(currentUser.uid, setTransactions);
+    return () => unsubscribe();
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (!currentUser) {
+      setActivities([]);
+      setActivitiesLoading(false);
+      return;
+    }
+
+    setActivitiesLoading(true);
+    const unsubscribe = listenToActivities(currentUser.uid, (entries) => {
+      setActivities(entries);
+      setActivitiesLoading(false);
+    });
+
     return () => unsubscribe();
   }, [currentUser]);
 
