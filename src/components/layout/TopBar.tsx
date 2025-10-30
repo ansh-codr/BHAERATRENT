@@ -1,10 +1,12 @@
 import { useState } from 'react';
-import { Menu, Bell, ChevronDown, LogOut, Repeat, User } from 'lucide-react';
+import { Menu, Bell, ChevronDown, LogOut, Repeat, User, ArrowRight } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import { useNotifications } from '../../contexts/NotificationContext';
+import { formatDistanceToNow } from 'date-fns';
 
 interface TopBarProps {
   onToggleSidebar: () => void;
@@ -16,7 +18,9 @@ interface TopBarProps {
 export const TopBar = ({ onToggleSidebar, pageTitle, showAddButton, onAddItem }: TopBarProps) => {
   const { currentUser, signOut, switchRole } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const navigate = useNavigate();
+  const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
 
   const handleSignOut = async () => {
     try {
@@ -46,6 +50,21 @@ export const TopBar = ({ onToggleSidebar, pageTitle, showAddButton, onAddItem }:
   const isAuthenticated = Boolean(currentUser);
   const avatarInitial = currentUser?.displayName?.[0]?.toUpperCase() || currentUser?.email?.[0]?.toUpperCase() || 'U';
 
+  const handleNotificationClick = async (notificationId: string, metadata?: Record<string, unknown>) => {
+    await markAsRead(notificationId);
+    setNotificationsOpen(false);
+
+    if (metadata?.bookingId) {
+      if (currentUser?.role === 'provider') {
+        navigate('/provider?section=bookings');
+      } else if (currentUser?.role === 'renter') {
+        navigate('/renter');
+      }
+    }
+  };
+
+  const badgeLabel = unreadCount > 9 ? '9+' : unreadCount.toString();
+
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between border-b border-white/10 bg-black/40 px-4 py-4 backdrop-blur-2xl">
       <div className="flex items-center gap-4">
@@ -70,12 +89,86 @@ export const TopBar = ({ onToggleSidebar, pageTitle, showAddButton, onAddItem }:
 
         {isAuthenticated ? (
           <>
-            <button className="relative flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-gray-300 transition hover:text-white">
-              <Bell className="h-5 w-5" />
-              <span className="absolute -right-1 -top-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-[10px] font-bold text-white">
-                3
-              </span>
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => setNotificationsOpen((prev) => !prev)}
+                className={`relative flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-gray-300 transition hover:text-white ${
+                  notificationsOpen ? 'ring-2 ring-cyan-400/60' : ''
+                }`}
+              >
+                <Bell className="h-5 w-5" />
+                {unreadCount > 0 ? (
+                  <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-[18px] items-center justify-center rounded-full bg-rose-500 px-[5px] text-[10px] font-bold text-white">
+                    {badgeLabel}
+                  </span>
+                ) : null}
+              </button>
+
+              <AnimatePresence>
+                {notificationsOpen ? (
+                  <motion.div
+                    initial={{ opacity: 0, y: -6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -6 }}
+                    transition={{ duration: 0.15 }}
+                    className="absolute right-0 mt-3 w-80 max-w-[90vw] rounded-2xl border border-white/10 bg-black/90 p-4 backdrop-blur-2xl shadow-2xl"
+                  >
+                    <div className="mb-3 flex items-center justify-between">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.3em] text-gray-500">Notifications</p>
+                        <p className="text-sm font-semibold text-white">Stay in the loop</p>
+                      </div>
+                      {unreadCount > 0 ? (
+                        <button
+                          type="button"
+                          className="text-xs font-semibold text-cyan-300 hover:text-cyan-200"
+                          onClick={() => markAllAsRead()}
+                        >
+                          Mark all read
+                        </button>
+                      ) : null}
+                    </div>
+
+                    <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                      {notifications.length === 0 ? (
+                        <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-gray-400">
+                          You're all caught up!
+                        </div>
+                      ) : (
+                        notifications.slice(0, 6).map((notification) => (
+                          <button
+                            key={notification.id}
+                            onClick={() => handleNotificationClick(notification.id, notification.metadata)}
+                            className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
+                              notification.read
+                                ? 'border-white/10 bg-white/5 text-gray-300 hover:border-white/20'
+                                : 'border-cyan-400/60 bg-cyan-400/10 text-white shadow-[0_12px_45px_rgba(34,211,238,0.2)]'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <p className="text-sm font-semibold">{notification.title}</p>
+                              <span className="text-[10px] uppercase tracking-wide text-gray-400">
+                                {formatDistanceToNow(notification.createdAt, { addSuffix: true })}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-xs text-gray-300">{notification.body}</p>
+                            <span className="mt-2 inline-flex items-center gap-1 text-[11px] uppercase tracking-wide text-cyan-200">
+                              View details <ArrowRight className="h-3 w-3" />
+                            </span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+
+                    {notifications.length > 6 ? (
+                      <p className="mt-2 text-center text-[11px] uppercase tracking-wide text-gray-500">
+                        Showing latest 6 updates
+                      </p>
+                    ) : null}
+                  </motion.div>
+                ) : null}
+              </AnimatePresence>
+            </div>
 
             <div className="relative">
               <button

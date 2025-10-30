@@ -33,12 +33,11 @@ import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Card } from '../components/ui/Card';
-import { Item, Booking, Transaction, Notification } from '../types';
+import { Item, Booking, Transaction } from '../types';
 import { TutorialCards } from '../components/TutorialCards';
 import TransactionDetailsModal from '../components/payments/TransactionDetailsModal';
 import { listenToTransactionsByProvider } from '../services/transactions';
 import BookingChatDrawer from '../components/chat/BookingChatDrawer';
-import { listenToNotificationsByUser, markNotificationRead } from '../services/notifications';
 
 const formSteps = [
   {
@@ -91,8 +90,6 @@ export const ProviderDashboard = () => {
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatBooking, setChatBooking] = useState<Booking | null>(null);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const latestNotificationId = useRef<string | null>(null);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
@@ -167,25 +164,6 @@ export const ProviderDashboard = () => {
     const unsubscribe = listenToTransactionsByProvider(currentUser.uid, setTransactions);
     return () => unsubscribe();
   }, [currentUser]);
-
-  useEffect(() => {
-    if (!currentUser) return;
-
-    const unsubscribe = listenToNotificationsByUser(currentUser.uid, setNotifications);
-    return () => unsubscribe();
-  }, [currentUser]);
-
-  useEffect(() => {
-    if (notifications.length === 0) return;
-    const latest = notifications.find((notification) => !notification.read);
-    if (!latest || latest.id === latestNotificationId.current) return;
-
-    toast.success(latest.title, {
-      id: latest.id,
-    });
-    latestNotificationId.current = latest.id;
-    markNotificationRead(latest.id).catch((error) => console.error('Failed to mark notification read', error));
-  }, [notifications]);
 
   const itemLookup = useMemo(
     () =>
