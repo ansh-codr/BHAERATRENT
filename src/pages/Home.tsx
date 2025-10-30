@@ -8,6 +8,7 @@ import { Button } from '../components/ui/Button';
 import { Search, Package, Shirt, Smartphone, BookOpen, Watch, TrendingUp } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Item } from '../types';
+import WishlistToggle from '../components/items/WishlistToggle';
 
 const categories = [
   { name: 'Clothes', icon: Shirt, color: 'from-pink-400 to-rose-500', value: 'clothes' },
@@ -180,7 +181,10 @@ export const Home = () => {
                 transition={{ delay: index * 0.06 }}
               >
                 <Link to={`/item/${item.id}`}>
-                  <Card hover className="overflow-hidden">
+                  <Card hover className="relative overflow-hidden">
+                    <div className="absolute right-4 top-4 z-10">
+                      <WishlistToggle itemId={item.id} itemTitle={item.title} />
+                    </div>
                     <div className="flex h-48 items-center justify-center bg-gradient-to-br from-slate-900 to-slate-800">
                       {(() => {
                         const first = item.images?.[0];

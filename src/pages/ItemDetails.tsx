@@ -8,6 +8,7 @@ import { Card } from '../components/ui/Card';
 import { Package, User, Calendar, ArrowLeft } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Item } from '../types';
+import WishlistToggle from '../components/items/WishlistToggle';
 import { format, differenceInDays } from 'date-fns';
 import toast from 'react-hot-toast';
 
@@ -175,7 +176,12 @@ export const ItemDetails = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
           >
-            <Card className="overflow-hidden">
+            <Card className="relative overflow-hidden">
+              {(!currentUser || currentUser.uid !== item.providerId) && (
+                <div className="absolute right-4 top-4 z-10">
+                  <WishlistToggle itemId={item.id} itemTitle={item.title} />
+                </div>
+              )}
               <div className="aspect-square bg-gradient-to-br from-gray-800 to-gray-700 flex items-center justify-center">
                 {(() => {
                   const first = item.images?.[0];

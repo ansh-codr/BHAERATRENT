@@ -6,6 +6,7 @@ import { Card } from '../components/ui/Card';
 import { Package, Filter } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Item } from '../types';
+import WishlistToggle from '../components/items/WishlistToggle';
 
 export const Marketplace = () => {
   const [searchParams] = useSearchParams();
@@ -103,7 +104,10 @@ export const Marketplace = () => {
               transition={{ delay: index * 0.05 }}
             >
               <Link to={`/item/${item.id}`}>
-                <Card hover className="overflow-hidden">
+                <Card hover className="relative overflow-hidden">
+                  <div className="absolute right-4 top-4 z-10">
+                    <WishlistToggle itemId={item.id} itemTitle={item.title} />
+                  </div>
                   <div className="flex h-56 items-center justify-center bg-gradient-to-br from-slate-900 to-slate-800">
                     {(() => {
                       const first = item.images?.[0];

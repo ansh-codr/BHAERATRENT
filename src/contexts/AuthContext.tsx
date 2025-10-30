@@ -8,7 +8,7 @@ import {
   signOut as firebaseSignOut,
   onAuthStateChanged
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 import { User, UserRole } from '../types';
 
@@ -23,6 +23,7 @@ interface AuthContextType {
   switchRole: (role: UserRole) => Promise<void>;
   updateProfile: (data: Partial<User>) => Promise<void>;
   markTutorialCompleted: () => Promise<void>;
+  toggleWishlist: (itemId: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -109,6 +110,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           notificationsEnabled: data.notificationsEnabled ?? true,
           tutorialCompleted: data.tutorialCompleted ?? false,
           isVerified: data.isVerified || false,
+          wishlist: Array.isArray(data.wishlist) ? data.wishlist : [],
           createdAt: data.createdAt?.toDate() || new Date(),
         };
       }
@@ -152,6 +154,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       collegeIdUrl,
       notificationsEnabled: true,
       tutorialCompleted: false,
+      wishlist: [],
       createdAt: new Date(),
     });
   };
@@ -182,6 +185,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           collegeIdUrl: null,
           notificationsEnabled: true,
           tutorialCompleted: false,
+          wishlist: [],
           createdAt: new Date(),
         });
       } catch (err) {
@@ -261,6 +265,32 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  const toggleWishlist = async (itemId: string) => {
+    const user = auth.currentUser;
+    if (!user) throw new Error('No user logged in');
+
+    const userDocRef = doc(db, 'users', user.uid);
+    const alreadySaved = currentUser?.wishlist?.includes(itemId) ?? false;
+
+    try {
+      if (alreadySaved) {
+        await updateDoc(userDocRef, { wishlist: arrayRemove(itemId) });
+      } else {
+        await updateDoc(userDocRef, { wishlist: arrayUnion(itemId) });
+      }
+
+      setCurrentUser((prev) => {
+        if (!prev) return prev;
+        const existing = prev.wishlist ?? [];
+        const updated = alreadySaved ? existing.filter((entry) => entry !== itemId) : [...existing, itemId];
+        return { ...prev, wishlist: updated };
+      });
+    } catch (error) {
+      console.error('Failed to update wishlist:', error);
+      throw error;
+    }
+  };
+
   const value: AuthContextType = {
     currentUser,
     loading,
@@ -272,6 +302,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     switchRole,
     updateProfile,
     markTutorialCompleted,
+    toggleWishlist,
   };
 
   return (

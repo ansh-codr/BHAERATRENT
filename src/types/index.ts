@@ -14,6 +14,7 @@ export interface User {
   notificationsEnabled?: boolean;
   tutorialCompleted?: boolean;
   isVerified: boolean;
+  wishlist?: string[];
   createdAt: Date;
 }
 
@@ -99,6 +100,18 @@ export interface Notification {
   body: string;
   type: NotificationType;
   read: boolean;
+  createdAt: Date;
+  metadata?: Record<string, unknown>;
+}
+
+export type ActivityType = 'listing' | 'booking' | 'payment' | 'system' | 'profile';
+
+export interface Activity {
+  id: string;
+  userId: string;
+  title: string;
+  description: string;
+  type: ActivityType;
   createdAt: Date;
   metadata?: Record<string, unknown>;
 }
