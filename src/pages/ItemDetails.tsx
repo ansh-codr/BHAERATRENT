@@ -11,6 +11,7 @@ import { Item } from '../types';
 import WishlistToggle from '../components/items/WishlistToggle';
 import { format, differenceInDays } from 'date-fns';
 import toast from 'react-hot-toast';
+import { recordActivity } from '../services/activities';
 
 export const ItemDetails = () => {
   const { id } = useParams<{ id: string }>();
@@ -120,7 +121,24 @@ export const ItemDetails = () => {
         updatedAt: Timestamp.now(),
       };
 
-      await addDoc(collection(db, 'bookings'), bookingData);
+      const bookingRef = await addDoc(collection(db, 'bookings'), bookingData);
+
+      try {
+        await recordActivity({
+          userId: currentUser.uid,
+          title: 'Booking requested',
+          description: `You booked ${item.title}.`,
+          type: 'booking',
+          metadata: {
+            bookingId: bookingRef.id,
+            itemId: item.id,
+            providerId: item.providerId,
+          },
+        });
+      } catch (activityError) {
+        console.error('Failed to capture booking activity:', activityError);
+      }
+
       toast.success('Booking created! Complete payment from your dashboard to confirm.');
       navigate('/renter');
     } catch (error) {

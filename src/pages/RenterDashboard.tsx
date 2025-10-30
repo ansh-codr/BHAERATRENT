@@ -472,6 +472,53 @@ export const RenterDashboard = () => {
             <p className="text-gray-500">Start exploring items to rent!</p>
           </Card>
         )}
+
+        <div className="mt-12">
+          <Card className="border-white/10 bg-white/5 p-6 backdrop-blur-2xl">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-xs uppercase tracking-[0.35em] text-gray-500">Recent activity</p>
+                <h2 className="mt-2 text-xl font-bold text-white">Your latest actions</h2>
+                <p className="text-sm text-gray-400">Bookings you create and updates you trigger will appear here.</p>
+              </div>
+              <div className="hidden h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/5 text-cyan-300 sm:flex">
+                <History className="h-5 w-5" />
+              </div>
+            </div>
+
+            <div className="mt-6 space-y-4">
+              {activitiesLoading ? (
+                <div className="space-y-3">
+                  {[...Array(3)].map((_, index) => (
+                    <div key={index} className="h-16 animate-pulse rounded-2xl border border-white/10 bg-white/5" />
+                  ))}
+                </div>
+              ) : activities.length > 0 ? (
+                activities.map((activity) => (
+                  <div
+                    key={activity.id}
+                    className="flex items-start gap-3 rounded-2xl border border-white/10 bg-black/30 p-4"
+                  >
+                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-cyan-300">
+                      <History className="h-4 w-4" />
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold text-white">{activity.title}</p>
+                      <p className="text-sm text-gray-400">{activity.description}</p>
+                      <p className="text-xs uppercase tracking-wide text-gray-500">
+                        {formatDistanceToNow(activity.createdAt, { addSuffix: true })}
+                      </p>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-2xl border border-dashed border-white/15 bg-black/30 p-6 text-sm text-gray-400">
+                  No activity logged yet. Create a booking or complete a rental to populate this feed.
+                </div>
+              )}
+            </div>
+          </Card>
+        </div>
       </div>
 
       <PaymentModal

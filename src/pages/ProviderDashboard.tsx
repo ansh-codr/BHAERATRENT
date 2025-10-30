@@ -40,7 +40,7 @@ import TransactionDetailsModal from '../components/payments/TransactionDetailsMo
 import { listenToTransactionsByProvider } from '../services/transactions';
 import BookingChatDrawer from '../components/chat/BookingChatDrawer';
 import { createNotification } from '../services/notifications';
-import { listenToActivities } from '../services/activities';
+import { listenToActivities, recordActivity } from '../services/activities';
 import UserProfileModal from '../components/users/UserProfileModal';
 
 const formSteps = [
@@ -478,7 +478,23 @@ export const ProviderDashboard = () => {
         updatedAt: Timestamp.now(),
       };
 
-      await addDoc(collection(db, 'items'), payload);
+      const createdRef = await addDoc(collection(db, 'items'), payload);
+
+      try {
+        await recordActivity({
+          userId: currentUser.uid,
+          title: 'New listing published',
+          description: `You added “${formData.title.trim()}” to the marketplace.`,
+          type: 'listing',
+          metadata: {
+            itemId: createdRef.id,
+            category: formData.category,
+          },
+        });
+      } catch (activityError) {
+        console.error('Failed to capture listing activity:', activityError);
+      }
+
       toast.success('Item added successfully!');
       closeModal();
     } catch (error) {
