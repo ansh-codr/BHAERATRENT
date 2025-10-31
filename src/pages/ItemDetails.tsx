@@ -112,7 +112,7 @@ export const ItemDetails = () => {
         totalPrice,
         status: 'pending',
         paymentStatus: 'pending',
-        chatEnabled: false,
+  chatEnabled: true,
         itemReceived: false,
         returnRequested: false,
         returnConfirmed: false,

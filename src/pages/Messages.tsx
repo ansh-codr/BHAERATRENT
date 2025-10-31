@@ -99,7 +99,9 @@ export const Messages = () => {
         map.set(booking.id, booking);
       });
 
-      const filtered = Array.from(map.values()).filter((booking) => booking.chatEnabled || booking.lastMessagePreview);
+      const filtered = Array.from(map.values()).filter(
+        (booking) => booking.chatEnabled !== false || booking.lastMessagePreview
+      );
       setThreads(sortThreads(filtered));
       setLoading(false);
     };

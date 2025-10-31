@@ -280,7 +280,7 @@ export const RenterDashboard = () => {
       <div className="space-y-4">
         {bookings.map((booking, index) => {
           const providerDisplayName = booking.providerName || booking.providerId;
-          const canOpenChat = booking.paymentStatus === 'success' && Boolean(booking.chatEnabled);
+          const canOpenChat = booking.chatEnabled !== false && !['cancelled', 'completed'].includes(booking.status);
           const canRequestReturn =
             booking.paymentStatus === 'success' && Boolean(booking.itemReceived) && !booking.returnRequested;
           const providerProfile = () => openProfileModal(booking.providerId, providerDisplayName);

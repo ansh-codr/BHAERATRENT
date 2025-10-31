@@ -870,7 +870,8 @@ export const ProviderDashboard = () => {
           const transaction = transactionLookup[booking.id];
           const paymentStatus = booking.paymentStatus || 'pending';
           const renterDisplayName = booking.renterName || booking.renterEmail || booking.renterId;
-          const canOpenChat = Boolean(booking.chatEnabled) && booking.status !== 'completed';
+          const chatAllowed = booking.chatEnabled !== false && !['completed', 'cancelled'].includes(booking.status);
+          const canOpenChat = chatAllowed;
           const canConfirmReturn = Boolean(booking.returnRequested) && booking.status !== 'completed';
           const openRenterProfile = () => openProfile(booking.renterId, renterDisplayName);
           const openChat = () => {
