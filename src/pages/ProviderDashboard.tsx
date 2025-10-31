@@ -84,12 +84,13 @@ export const ProviderDashboard = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const [activeTab, setActiveTab] = useState<'listings' | 'bookings' | 'analytics'>('listings');
+  const [activeTab, setActiveTab] = useState<'listings' | 'bookings' | 'payments' | 'analytics'>('listings');
   const [items, setItems] = useState<Item[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loadingItems, setLoadingItems] = useState(true);
   const [loadingBookings, setLoadingBookings] = useState(true);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [loadingPayments, setLoadingPayments] = useState(true);
   const [transactionModalOpen, setTransactionModalOpen] = useState(false);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
@@ -194,9 +195,17 @@ export const ProviderDashboard = () => {
   }, [currentUser]);
 
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUser) {
+      setTransactions([]);
+      setLoadingPayments(false);
+      return;
+    }
 
-    const unsubscribe = listenToTransactionsByProvider(currentUser.uid, setTransactions);
+    setLoadingPayments(true);
+    const unsubscribe = listenToTransactionsByProvider(currentUser.uid, (entries) => {
+      setTransactions(entries);
+      setLoadingPayments(false);
+    });
     return () => unsubscribe();
   }, [currentUser]);
 
@@ -232,6 +241,15 @@ export const ProviderDashboard = () => {
         return acc;
       }, {}),
     [transactions]
+  );
+
+  const bookingLookup = useMemo(
+    () =>
+      bookings.reduce<Record<string, Booking>>((acc, booking) => {
+        acc[booking.id] = booking;
+        return acc;
+      }, {}),
+    [bookings]
   );
 
   const totalEarnings = useMemo(
@@ -408,6 +426,86 @@ export const ProviderDashboard = () => {
     imagePreviews.forEach((url) => URL.revokeObjectURL(url));
     const previews = mergedFiles.map((file) => URL.createObjectURL(file));
     setImagePreviews(previews);
+  };
+
+  const renderPayments = () => {
+    if (loadingPayments) {
+      return (
+        <div className="space-y-4">
+          {[...Array(3)].map((_, index) => (
+            <Card key={index} className="h-28 animate-pulse bg-white/10">
+              <div className="h-full w-full rounded-2xl bg-white/5" />
+            </Card>
+          ))}
+        </div>
+      );
+    }
+
+    if (transactions.length === 0) {
+      return (
+        <Card className="flex flex-col items-center justify-center gap-4 p-12 text-center text-gray-400">
+          <Coins className="h-12 w-12 text-gray-500" />
+          <p className="text-lg font-semibold">No payments received yet</p>
+          <p className="text-sm text-gray-500">Completed bookings will appear here with payment details.</p>
+        </Card>
+      );
+    }
+
+    const badgeClasses = (status: Transaction['status']) => {
+      switch (status) {
+        case 'success':
+          return 'border-emerald-400/60 bg-emerald-400/15 text-emerald-200';
+        case 'failed':
+          return 'border-rose-400/60 bg-rose-400/15 text-rose-200';
+        default:
+          return 'border-amber-400/60 bg-amber-400/15 text-amber-200';
+      }
+    };
+
+    return (
+      <div className="space-y-4">
+        {transactions.map((transaction, index) => {
+          const booking = bookingLookup[transaction.bookingId];
+          const itemTitle = booking?.itemTitle || booking?.itemId || 'Listing';
+          return (
+            <motion.div
+              key={transaction.id}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.05 }}
+            >
+              <Card className="flex flex-col gap-4 border-white/10 bg-black/40 p-6 md:flex-row md:items-center md:justify-between">
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <h3 className="text-lg font-bold text-white">₹{transaction.amount}</h3>
+                    <span className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${badgeClasses(transaction.status)}`}>
+                      {transaction.status === 'success'
+                        ? 'Payment received'
+                        : transaction.status === 'failed'
+                        ? 'Payment failed'
+                        : 'Pending payment'}
+                    </span>
+                    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-gray-300">
+                      {transaction.method.toUpperCase()}
+                    </span>
+                  </div>
+                  <p className="text-sm text-gray-300">
+                    {booking?.renterName || booking?.renterEmail || 'Renter'} · {itemTitle}
+                  </p>
+                  <p className="text-xs uppercase tracking-wide text-gray-500">
+                    {format(transaction.createdAt, 'MMM dd, yyyy • HH:mm')}
+                  </p>
+                </div>
+                <div className="flex flex-col items-start gap-2 text-sm text-gray-400 md:items-end">
+                  <span className="font-semibold text-white">Reference: {transaction.referenceId}</span>
+                  <span>Booking ID: {transaction.bookingId.slice(0, 8)}</span>
+                </div>
+              </Card>
+            </motion.div>
+          );
+        })}
+      </div>
+    );
   };
 
   const removeImage = (index: number) => {
@@ -1057,7 +1155,14 @@ export const ProviderDashboard = () => {
             className={activeTab === 'bookings' ? '' : 'border-white/20 text-gray-300'}
             onClick={() => setActiveTab('bookings')}
           >
-            Bookings
+            Orders
+          </Button>
+          <Button
+            variant={activeTab === 'payments' ? 'primary' : 'ghost'}
+            className={activeTab === 'payments' ? '' : 'border-white/20 text-gray-300'}
+            onClick={() => setActiveTab('payments')}
+          >
+            Payments
           </Button>
           <Button
             variant={activeTab === 'analytics' ? 'primary' : 'ghost'}
@@ -1071,6 +1176,7 @@ export const ProviderDashboard = () => {
         <div className="mt-6">
           {activeTab === 'listings' && renderListings()}
           {activeTab === 'bookings' && renderBookings()}
+          {activeTab === 'payments' && renderPayments()}
           {activeTab === 'analytics' && renderAnalytics()}
         </div>
       </Card>
